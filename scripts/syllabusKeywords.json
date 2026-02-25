@@ -1,0 +1,110 @@
+{
+  "GS1_HISTORY": {
+    "ancient": [
+      "harappan", "indus valley", "mohenjo daro", "kalibangan",
+      "vedic", "rigveda", "upanishad", "maurya", "ashoka",
+      "arthashastra", "gupta", "sangam", "kanishka",
+      "janapada", "mahajanapada", "buddhism", "jainism"
+    ],
+    "medieval": [
+      "delhi sultanate", "mughal", "akbar", "aurangzeb",
+      "maratha", "shivaji", "bhakti movement",
+      "sufi", "vijayanagara", "rajput"
+    ],
+    "modern": [
+      "revolt of 1857", "swadeshi", "civil disobedience",
+      "non cooperation", "quit india", "cabinet mission",
+      "mountbatten plan", "partition"
+    ],
+    "post_independence": [
+      "linguistic reorganization", "tribal policy",
+      "caste issue", "communalism", "five year plan"
+    ]
+  },
+
+  "GS1_GEOGRAPHY": {
+    "physical": [
+      "plate tectonics", "earthquake", "volcano",
+      "el nino", "la nina", "indian ocean dipole",
+      "jet stream", "cyclone", "monsoon",
+      "polar vortex", "cryosphere", "glacial lake",
+      "thermohaline circulation"
+    ],
+    "indian": [
+      "western disturbance", "himalayan glacier",
+      "indus river", "ganga basin", "brahmaputra",
+      "coastal erosion", "landslide", "heatwave"
+    ],
+    "human": [
+      "urbanization", "migration", "slum",
+      "population pyramid", "demographic transition",
+      "ageing population"
+    ]
+  },
+
+  "GS2_POLITY_GOVERNANCE": {
+    "constitution": [
+      "constitution", "article 14", "article 21",
+      "article 32", "federalism", "amendment",
+      "fundamental rights", "directive principles",
+      "basic structure doctrine"
+    ],
+    "governance": [
+      "e governance", "digital india", "lokpal",
+      "cag", "rti", "tribunal", "judicial review"
+    ],
+    "international": [
+      "united nations", "brics", "g20", "quad",
+      "indo pacific", "imf", "world bank",
+      "wto", "climate summit", "cop28"
+    ]
+  },
+
+  "GS3_ECONOMY_ENV_SCI": {
+    "economy": [
+      "gdp", "inflation", "repo rate", "rbi",
+      "fiscal deficit", "budget", "niti aayog",
+      "economic survey", "msme", "startup india"
+    ],
+    "agriculture": [
+      "msp", "food security", "crop insurance",
+      "agrarian crisis", "green revolution",
+      "organic farming"
+    ],
+    "environment": [
+      "biodiversity", "climate change",
+      "carbon neutrality", "national park",
+      "wildlife sanctuary", "wetlands",
+      "paris agreement"
+    ],
+    "science": [
+      "isro", "drdo", "artificial intelligence",
+      "quantum computing", "semiconductor",
+      "space mission", "satellite launch"
+    ],
+    "security": [
+      "cyber security", "data protection",
+      "terrorism", "internal security",
+      "defence procurement"
+    ]
+  },
+
+  "GS4_ETHICS": [
+    "ethics", "integrity", "transparency",
+    "accountability", "moral values",
+    "civil services ethics",
+    "probity", "empathy"
+  ],
+
+  "NEGATIVE_FILTER": [
+    "gold rate",
+    "movie review",
+    "box office",
+    "celebrity",
+    "fashion week",
+    "cricket score",
+    "ipl match",
+    "horoscope",
+    "viral video"
+  ]
+}
