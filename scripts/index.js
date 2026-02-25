@@ -6,10 +6,15 @@ import { fileURLToPath } from "url";
 
 import { uploadAllData } from "./uploadToR2.js";
 import { fetchRSSArticles } from "./rssFetcher.js";
-import { loadProcessedLinks, saveProcessedLinks, filterUnprocessed, markAsProcessed } from "./stateManager.js";
+import {
+  loadProcessedLinks,
+  saveProcessedLinks,
+  filterUnprocessed,
+  markAsProcessed
+} from "./stateManager.js";
 import { scrapeFullArticle } from "./articleScraper.js";
 import { filterAndSortArticles } from "./relevanceEngine.js";
-import { generateStructuredHTML } from "./ruleBasedGenerator.js";
+import { generateHybridHTML } from "./hybridGenerator.js";
 import { detectCategory } from "./categoryDetector.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,13 +35,20 @@ async function runPipeline() {
 
     console.log("📅 Today:", today);
 
+    // ===============================
+    // 1️⃣ FETCH RSS
+    // ===============================
+
     console.log("📡 Fetching RSS feeds...");
     const rssArticles = await fetchRSSArticles();
-
     console.log("📰 Total RSS Articles:", rssArticles.length);
 
-    // Deduplicate by normalized title
+    // ===============================
+    // 2️⃣ DEDUPLICATION
+    // ===============================
+
     const seenTitles = new Set();
+
     const deduplicated = rssArticles.filter(article => {
       const normalized = (article.title || "").toLowerCase().trim();
       if (!normalized) return false;
@@ -45,16 +57,31 @@ async function runPipeline() {
       return true;
     });
 
-    // Hindi filter
+    // ===============================
+    // 3️⃣ HINDI FILTER
+    // ===============================
+
     const hindiRegex = /[\u0900-\u097F]/;
+
     const englishOnly = deduplicated.filter(article => {
-      return !hindiRegex.test(article.title) && !hindiRegex.test(article.content);
+      return (
+        !hindiRegex.test(article.title || "") &&
+        !hindiRegex.test(article.content || "")
+      );
     });
+
+    // ===============================
+    // 4️⃣ BACKLOG PROTECTION
+    // ===============================
 
     const processedSet = loadProcessedLinks();
     const unprocessed = filterUnprocessed(englishOnly, processedSet);
 
     console.log("🆕 New Articles to Process:", unprocessed.length);
+
+    // ===============================
+    // 5️⃣ SCRAPE FULL ARTICLES
+    // ===============================
 
     const scrapedArticles = [];
 
@@ -82,17 +109,24 @@ async function runPipeline() {
 
     saveProcessedLinks(processedSet);
 
-    const relevantArticles = filterAndSortArticles(scrapedArticles);
+    // ===============================
+    // 6️⃣ RELEVANCE SCORING
+    // ===============================
 
+    const relevantArticles = filterAndSortArticles(scrapedArticles);
     const topArticles = relevantArticles.slice(0, 20);
 
     console.log("🎯 Selected Top Articles:", topArticles.length);
+
+    // ===============================
+    // 7️⃣ HYBRID AI GENERATION
+    // ===============================
 
     const finalOutput = [];
 
     for (const article of topArticles) {
       try {
-        const generatedHTML = generateStructuredHTML(article);
+        const generatedHTML = await generateHybridHTML(article);
         const category = detectCategory(article);
 
         finalOutput.push({
@@ -100,11 +134,14 @@ async function runPipeline() {
           summaryText: generatedHTML,
           category: category
         });
-
       } catch (err) {
         console.log("⚠ Skipping article due to generation error");
       }
     }
+
+    // ===============================
+    // 8️⃣ SAVE TODAY JSON
+    // ===============================
 
     fs.writeFileSync(
       path.join(dataDir, `${today}.json`),
@@ -113,7 +150,9 @@ async function runPipeline() {
 
     console.log("✅ Today's JSON created.");
 
-    // ===== UPDATED DATE MANAGEMENT (NO ARCHIVE LOGIC) =====
+    // ===============================
+    // 9️⃣ UPDATE dates.json (NO ARCHIVE LOGIC)
+    // ===============================
 
     const datesPath = path.join(dataDir, "dates.json");
 
@@ -124,7 +163,6 @@ async function runPipeline() {
     }
 
     const dateSet = new Set(existingDates);
-
     dateSet.add(today);
 
     const finalDates = Array.from(dateSet).sort((a, b) =>
@@ -134,6 +172,10 @@ async function runPipeline() {
     fs.writeFileSync(datesPath, JSON.stringify(finalDates, null, 2));
 
     console.log("✅ dates.json updated.");
+
+    // ===============================
+    // 🔟 UPLOAD TO R2
+    // ===============================
 
     await uploadAllData();
 
