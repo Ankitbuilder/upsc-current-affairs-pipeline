@@ -3,24 +3,15 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-/**
- * Clean unwanted tags and normalize text
- */
 function cleanHTML($) {
-  // Remove unwanted elements
   $("script, style, noscript, iframe, header, footer, nav, form, svg").remove();
   $(".advertisement, .ads, .ad, .social-share, .related, .story-related-news").remove();
-
   return $;
 }
 
-/**
- * Extract meaningful paragraphs
- */
 function extractContent($) {
   let content = "";
 
-  // Try structured article first
   const articleTag = $("article");
 
   if (articleTag.length) {
@@ -31,7 +22,6 @@ function extractContent($) {
       }
     });
   } else {
-    // Fallback: collect all <p> tags
     $("p").each((_, el) => {
       const text = $(el).text().trim();
       if (text.length > 60) {
@@ -43,9 +33,6 @@ function extractContent($) {
   return content.trim();
 }
 
-/**
- * Main Scraper
- */
 export async function scrapeFullArticle(url) {
   try {
     const response = await axios.get(url, {
@@ -60,25 +47,22 @@ export async function scrapeFullArticle(url) {
     const html = response.data;
 
     if (!html || html.length < 1000) {
-      console.log("⚠ Empty or small HTML:", url);
+      console.log("⚠ Empty HTML:", url);
       return null;
     }
 
     const $ = cheerio.load(html);
-
     cleanHTML($);
 
-    // Headline
     let headline =
       $("meta[property='og:title']").attr("content") ||
       $("h1").first().text().trim();
 
     if (!headline || headline.length < 10) {
-      console.log("⚠ No headline found:", url);
+      console.log("⚠ No headline:", url);
       return null;
     }
 
-    // Extract content
     const content = extractContent($);
 
     if (!content || content.length < 500) {
@@ -93,6 +77,7 @@ export async function scrapeFullArticle(url) {
       headline,
       content
     };
+
   } catch (error) {
     console.log("❌ Scrape error:", url);
     return null;
