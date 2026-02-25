@@ -1,10 +1,13 @@
 import fs from "fs";
+import axios from "axios";
 import { uploadJSON } from "./uploadToR2.js";
 
 async function run() {
   console.log("UPSC Pipeline Started...");
 
   const today = new Date().toISOString().split("T")[0];
+  const cutoffDate = "2025-08-10";
+  const baseUrl = `https://${process.env.R2_BUCKET_NAME}.r2.dev`;
 
   if (!fs.existsSync("./data")) {
     fs.mkdirSync("./data");
@@ -29,13 +32,37 @@ async function run() {
 
   // Save locally
   fs.writeFileSync(`./data/${today}.json`, JSON.stringify(sample, null, 2));
-  fs.writeFileSync("./data/dates.json", JSON.stringify([today], null, 2));
 
-  console.log("Local JSON created.");
+  // Fetch existing dates from R2
+  let existingDates = [];
+
+  try {
+    const response = await axios.get(`${baseUrl}/dates.json`);
+    existingDates = response.data || [];
+    console.log("Fetched existing dates from R2.");
+  } catch (error) {
+    console.log("No existing dates found or failed to fetch.");
+  }
+
+  // Keep only dates <= cutoff
+  const filteredDates = existingDates.filter(date => date <= cutoffDate);
+
+  // Add today if not present
+  if (!filteredDates.includes(today)) {
+    filteredDates.unshift(today);
+  }
+
+  // Sort newest first
+  filteredDates.sort((a, b) => b.localeCompare(a));
+
+  // Save locally
+  fs.writeFileSync("./data/dates.json", JSON.stringify(filteredDates, null, 2));
+
+  console.log("Local JSON updated.");
 
   // Upload to R2
   await uploadJSON(`${today}.json`, sample);
-  await uploadJSON("dates.json", [today]);
+  await uploadJSON("dates.json", filteredDates);
 
   console.log("Uploaded to R2 successfully.");
 }
