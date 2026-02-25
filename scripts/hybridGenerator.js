@@ -4,7 +4,9 @@ import axios from "axios";
 import { generateStructuredHTML } from "./ruleBasedGenerator.js";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL = "llama-3.3-70b-versatile"";
+
+/* ✅ UPDATED MODEL (old one was decommissioned) */
+const MODEL = "llama-3.3-70b-versatile";
 
 /* ===============================
    HTML VALIDATION
@@ -65,7 +67,6 @@ export async function generateHybridHTML(article) {
   try {
     const apiKey = process.env.GROQ_API_KEY;
 
-    // If key missing → directly fallback
     if (!apiKey) {
       console.log("⚠ GROQ_API_KEY not found. Using rule engine.");
       return generateStructuredHTML(article);
@@ -88,7 +89,7 @@ export async function generateHybridHTML(article) {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json"
         },
-        timeout: 45000 // increased from 15000 → prevents timeout failures
+        timeout: 45000
       }
     );
 
@@ -96,6 +97,7 @@ export async function generateHybridHTML(article) {
       response?.data?.choices?.[0]?.message?.content || "";
 
     if (isValidHTML(output)) {
+      console.log("✅ Groq generation success");
       return output.trim();
     }
 
