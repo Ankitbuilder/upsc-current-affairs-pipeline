@@ -55,6 +55,15 @@ async function runPipeline() {
     }
 
     console.log("🔁 Unique PIB Articles:", uniqueArticles.length);
+    // ===============================
+    // 2.5️⃣ SORT BY PIB PUBLISH TIME (DESC)
+    // ===============================
+    uniqueArticles.sort((a, b) => {
+        const dateA = new Date(a.pubDate || 0);
+        const dateB = new Date(b.pubDate || 0);
+        return dateB - dateA; // newest first
+    });
+    console.log("⏳ Articles sorted by publish time.");
 
     // ===============================
     // 3️⃣ LOAD PROCESSED LINKS
