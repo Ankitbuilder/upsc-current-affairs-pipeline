@@ -25,7 +25,6 @@ async function runPipeline() {
     console.log("🚀 UPSC Intelligence Pipeline Started...");
 
     const dataDir = path.join(__dirname, "../data");
-
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir);
     }
@@ -39,12 +38,11 @@ async function runPipeline() {
     // 1️⃣ FETCH RSS
     // ===============================
 
-    console.log("📡 Fetching RSS feeds...");
     const rssArticles = await fetchRSSArticles();
     console.log("📰 Total RSS Articles:", rssArticles.length);
 
     // ===============================
-    // 2️⃣ DEDUPLICATION
+    // 2️⃣ DEDUPLICATE
     // ===============================
 
     const seenTitles = new Set();
@@ -77,21 +75,30 @@ async function runPipeline() {
     const processedSet = loadProcessedLinks();
     const unprocessed = filterUnprocessed(englishOnly, processedSet);
 
-    console.log("🆕 New Articles to Process:", unprocessed.length);
+    console.log("🆕 New Articles:", unprocessed.length);
 
     // ===============================
-    // 5️⃣ SCRAPE FULL ARTICLES
+    // 5️⃣ PRE-SCORE BEFORE SCRAPING
+    // ===============================
+
+    const preScored = filterAndSortArticles(unprocessed);
+
+    // Only take top 60 for scraping
+    const candidates = preScored.slice(0, 60);
+
+    console.log("🔎 Candidates for Scraping:", candidates.length);
+
+    // ===============================
+    // 6️⃣ SCRAPE SELECTED ARTICLES
     // ===============================
 
     const scrapedArticles = [];
 
-    for (const article of unprocessed) {
+    for (const article of candidates) {
       try {
         const fullContent = await scrapeFullArticle(article.link);
 
-        if (!fullContent || fullContent.length < 200) {
-          continue;
-        }
+        if (!fullContent || fullContent.length < 300) continue;
 
         scrapedArticles.push({
           title: article.title,
@@ -103,23 +110,25 @@ async function runPipeline() {
         markAsProcessed(processedSet, article.link);
 
       } catch (err) {
-        console.log("⚠ Skipping article due to scrape error");
+        console.log("⚠ Scrape failed for:", article.link);
       }
     }
 
     saveProcessedLinks(processedSet);
 
-    // ===============================
-    // 6️⃣ RELEVANCE SCORING
-    // ===============================
-
-    const relevantArticles = filterAndSortArticles(scrapedArticles);
-    const topArticles = relevantArticles.slice(0, 20);
-
-    console.log("🎯 Selected Top Articles:", topArticles.length);
+    console.log("📝 Scraped Articles:", scrapedArticles.length);
 
     // ===============================
-    // 7️⃣ HYBRID AI GENERATION
+    // 7️⃣ FINAL RELEVANCE SCORING
+    // ===============================
+
+    const finalRanked = filterAndSortArticles(scrapedArticles);
+    const topArticles = finalRanked.slice(0, 20);
+
+    console.log("🎯 Final Selected Articles:", topArticles.length);
+
+    // ===============================
+    // 8️⃣ HYBRID AI GENERATION
     // ===============================
 
     const finalOutput = [];
@@ -135,12 +144,12 @@ async function runPipeline() {
           category: category
         });
       } catch (err) {
-        console.log("⚠ Skipping article due to generation error");
+        console.log("⚠ Generation failed for:", article.title);
       }
     }
 
     // ===============================
-    // 8️⃣ SAVE TODAY JSON
+    // 9️⃣ SAVE TODAY JSON
     // ===============================
 
     fs.writeFileSync(
@@ -151,7 +160,7 @@ async function runPipeline() {
     console.log("✅ Today's JSON created.");
 
     // ===============================
-    // 9️⃣ UPDATE dates.json (NO ARCHIVE LOGIC)
+    // 🔟 UPDATE dates.json
     // ===============================
 
     const datesPath = path.join(dataDir, "dates.json");
@@ -174,7 +183,7 @@ async function runPipeline() {
     console.log("✅ dates.json updated.");
 
     // ===============================
-    // 🔟 UPLOAD TO R2
+    // 1️⃣1️⃣ UPLOAD TO R2
     // ===============================
 
     await uploadAllData();
