@@ -5,7 +5,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { uploadAllData } from "./uploadToR2.js";
 
-// Required for ES modules (__dirname replacement)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -19,16 +18,8 @@ async function runPipeline() {
       fs.mkdirSync(dataDir);
     }
 
-    // ==============================
-    // 1️⃣ Get Today Date
-    // ==============================
-
     const todayDateObj = new Date();
     const today = todayDateObj.toISOString().split("T")[0];
-
-    // ==============================
-    // 2️⃣ Generate Today JSON
-    // ==============================
 
     const sampleData = [
       {
@@ -40,50 +31,37 @@ async function runPipeline() {
         significance: "Ensures daily current affairs update.",
         challenges: "None",
         wayForward: "Proceed with AI integration.",
-        prelimsFacts: [
-          "Fact 1",
-          "Fact 2",
-          "Fact 3",
-          "Fact 4",
-          "Fact 5"
-        ],
+        prelimsFacts: ["Fact 1", "Fact 2", "Fact 3", "Fact 4", "Fact 5"],
         gsPaper: "GS2"
       }
     ];
 
-    const todayFilePath = path.join(dataDir, `${today}.json`);
-    fs.writeFileSync(todayFilePath, JSON.stringify(sampleData, null, 2));
-
-    console.log("✅ Today's JSON generated.");
-
-    // ==============================
-    // 3️⃣ Date Logic
-    // ==============================
+    fs.writeFileSync(
+      path.join(dataDir, `${today}.json`),
+      JSON.stringify(sampleData, null, 2)
+    );
 
     const archiveStart = new Date("2025-01-01");
     const archiveEnd = new Date("2025-08-10");
 
-    const datesFilePath = path.join(dataDir, "dates.json");
+    const datesPath = path.join(dataDir, "dates.json");
 
     let existingDates = [];
-
-    if (fs.existsSync(datesFilePath)) {
-      existingDates = JSON.parse(fs.readFileSync(datesFilePath));
+    if (fs.existsSync(datesPath)) {
+      existingDates = JSON.parse(fs.readFileSync(datesPath));
     }
 
     const finalDatesSet = new Set();
 
-    // Fixed archive range
-    let tempDate = new Date(archiveStart);
-    while (tempDate <= archiveEnd) {
-      finalDatesSet.add(tempDate.toISOString().split("T")[0]);
-      tempDate.setDate(tempDate.getDate() + 1);
+    let temp = new Date(archiveStart);
+    while (temp <= archiveEnd) {
+      finalDatesSet.add(temp.toISOString().split("T")[0]);
+      temp.setDate(temp.getDate() + 1);
     }
 
-    // Add today + future dates
     existingDates.forEach((dateStr) => {
-      const dateObj = new Date(dateStr);
-      if (dateObj >= todayDateObj) {
+      const d = new Date(dateStr);
+      if (d >= todayDateObj) {
         finalDatesSet.add(dateStr);
       }
     });
@@ -94,13 +72,9 @@ async function runPipeline() {
       b.localeCompare(a)
     );
 
-    fs.writeFileSync(datesFilePath, JSON.stringify(finalDates, null, 2));
+    fs.writeFileSync(datesPath, JSON.stringify(finalDates, null, 2));
 
     console.log("✅ dates.json updated correctly.");
-
-    // ==============================
-    // 4️⃣ Upload to R2
-    // ==============================
 
     await uploadAllData();
 
