@@ -59,6 +59,7 @@ async function runPipeline() {
       finalOutput.push({
         headline: scraped.headline || article.title,
         fullText: scraped.content,
+        images: scraped.images || [],
         source: article.link
       });
     }
