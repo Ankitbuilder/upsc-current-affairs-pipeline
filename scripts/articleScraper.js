@@ -1,7 +1,7 @@
 // scripts/articleScraper.js
 
 import axios from "axios";
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 
 function cleanHTML($, container) {
   container.find("script").remove();
