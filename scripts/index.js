@@ -1,5 +1,7 @@
 // scripts/index.js
 
+process.env.TZ = "Asia/Kolkata"; // ✅ Ensure IST date always
+
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -27,7 +29,8 @@ async function runPipeline() {
       fs.mkdirSync(dataDir);
     }
 
-    const today = new Date().toISOString().split("T")[0];
+    // ✅ Use IST date (NOT UTC)
+    const today = new Date().toLocaleDateString("en-CA");
     console.log("📅 Today:", today);
 
     // ===============================
@@ -55,14 +58,16 @@ async function runPipeline() {
     }
 
     console.log("🔁 Unique PIB Articles:", uniqueArticles.length);
+
     // ===============================
     // 2.5️⃣ SORT BY PIB PUBLISH TIME (DESC)
     // ===============================
     uniqueArticles.sort((a, b) => {
-        const dateA = new Date(a.pubDate || 0);
-        const dateB = new Date(b.pubDate || 0);
-        return dateB - dateA; // newest first
+      const dateA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
+      const dateB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+      return dateB - dateA;
     });
+
     console.log("⏳ Articles sorted by publish time.");
 
     // ===============================
@@ -117,14 +122,38 @@ async function runPipeline() {
     console.log("📝 Successfully Scraped:", finalOutput.length);
 
     // ===============================
-    // 5️⃣ SAVE TODAY JSON
+    // 5️⃣ SAVE TODAY JSON (APPEND MODE)
     // ===============================
+    const todayPath = path.join(dataDir, `${today}.json`);
+
+    let existingData = [];
+
+    if (fs.existsSync(todayPath)) {
+      try {
+        existingData = JSON.parse(fs.readFileSync(todayPath));
+      } catch (err) {
+        console.log("⚠ Error reading existing file. Creating fresh.");
+        existingData = [];
+      }
+    }
+
+    // Merge old + new
+    const combinedData = [...existingData, ...finalOutput];
+
+    // Remove duplicates safely using articleUrl
+    const uniqueMap = new Map();
+    for (const item of combinedData) {
+      uniqueMap.set(item.articleUrl, item);
+    }
+
+    const finalMerged = Array.from(uniqueMap.values());
+
     fs.writeFileSync(
-      path.join(dataDir, `${today}.json`),
-      JSON.stringify(finalOutput, null, 2)
+      todayPath,
+      JSON.stringify(finalMerged, null, 2)
     );
 
-    console.log("✅ Today's JSON created.");
+    console.log("✅ Today's JSON updated without overwrite.");
 
     // ===============================
     // 6️⃣ UPDATE dates.json
