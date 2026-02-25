@@ -1,0 +1,33 @@
+[
+  {
+    "title": "Pipeline Setup Test",
+    "source": "System",
+    "publishedAt": "2026-02-25",
+    "whyInNews": "Testing pipeline initialization.",
+    "background": "Initial setup validation.",
+    "keyHighlights": [
+      "Structure ready",
+      "JSON format validated"
+    ],
+    "constitutionalProvisions": "N/A",
+    "significance": "Ensures backend works.",
+    "challenges": "None",
+    "wayForward": "Proceed with next build steps.",
+    "prelimsFacts": [
+      "Automation enabled"
+    ],
+    "gsPaper": "GS2",
+    "mcqs": [
+      {
+        "question": "What is being tested?",
+        "options": [
+          "A. Flutter UI",
+          "B. Backend pipeline",
+          "C. Database migration",
+          "D. Hosting server"
+        ],
+        "answer": "B"
+      }
+    ]
+  }
+]
