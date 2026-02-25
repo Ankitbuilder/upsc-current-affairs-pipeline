@@ -46,7 +46,7 @@ function extractContent($) {
 /**
  * Main Scraper
  */
-export async function scrapeArticle(url) {
+export async function scrapeFullArticle(url) {
   try {
     const response = await axios.get(url, {
       headers: {
