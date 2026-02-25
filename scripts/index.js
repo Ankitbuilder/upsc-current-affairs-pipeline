@@ -1,8 +1,13 @@
 // scripts/index.js
 
-const fs = require("fs");
-const path = require("path");
-const { uploadAllData } = require("./uploadToR2");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { uploadAllData } from "./uploadToR2.js";
+
+// Required for ES modules (__dirname replacement)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function runPipeline() {
   try {
@@ -68,14 +73,14 @@ async function runPipeline() {
 
     const finalDatesSet = new Set();
 
-    // Keep fixed archive: 1 Jan 2025 → 10 Aug 2025
+    // Fixed archive range
     let tempDate = new Date(archiveStart);
     while (tempDate <= archiveEnd) {
       finalDatesSet.add(tempDate.toISOString().split("T")[0]);
       tempDate.setDate(tempDate.getDate() + 1);
     }
 
-    // Add today onwards (only if >= today)
+    // Add today + future dates
     existingDates.forEach((dateStr) => {
       const dateObj = new Date(dateStr);
       if (dateObj >= todayDateObj) {
@@ -83,10 +88,8 @@ async function runPipeline() {
       }
     });
 
-    // Always add today
     finalDatesSet.add(today);
 
-    // Convert to array and sort descending
     const finalDates = Array.from(finalDatesSet).sort((a, b) =>
       b.localeCompare(a)
     );
