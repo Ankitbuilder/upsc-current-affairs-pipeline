@@ -14,15 +14,16 @@ export async function scrapeFullArticle(url) {
     const response = await axios.get(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept-Language": "en-US,en;q=0.9"
       },
       timeout: 30000
     });
 
     const html = response.data;
 
-    if (!html) {
-      console.log("⚠ Empty HTML:", url);
+    if (!html || html.length < 2000) {
+      console.log("⚠ HTML too small:", url);
       return null;
     }
 
@@ -30,34 +31,25 @@ export async function scrapeFullArticle(url) {
 
     // Headline
     const headline =
-      $("meta[property='og:title']").attr("content") ||
       $("h1").first().text().trim() ||
+      $("meta[property='og:title']").attr("content") ||
       "";
 
     let content = "";
     let images = [];
 
-    // Try main PIB container
-    let container =
-      $("#ContentPlaceHolder1_StoryContent");
+    // ✅ Correct PIB container from screenshot
+    const container = $(".innner-page-main-about-us-content-right-part");
 
-    // If not found, fallback to full body
     if (!container || container.length === 0) {
-      container = $("body");
+      console.log("⚠ PIB container not found:", url);
+      return null;
     }
 
     // Extract paragraphs
     container.find("p").each((_, el) => {
       const text = $(el).text().trim();
-      if (text.length > 20) {
-        content += text + "\n\n";
-      }
-    });
-
-    // Extract list items
-    container.find("li").each((_, el) => {
-      const text = $(el).text().trim();
-      if (text.length > 20) {
+      if (text.length > 30) {
         content += text + "\n\n";
       }
     });
@@ -66,14 +58,12 @@ export async function scrapeFullArticle(url) {
     container.find("img").each((_, el) => {
       const src = $(el).attr("src");
       const fullUrl = normalizeImageUrl(src);
-      if (fullUrl) {
-        images.push(fullUrl);
-      }
+      if (fullUrl) images.push(fullUrl);
     });
 
     content = content.trim();
 
-    if (content.length < 50) {
+    if (content.length < 100) {
       console.log("⚠ No meaningful PIB content:", url);
       return null;
     }
