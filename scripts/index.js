@@ -7,15 +7,13 @@ import { fileURLToPath } from "url";
 import { uploadAllData } from "./uploadToR2.js";
 import { fetchRSSArticles } from "./rssFetcher.js";
 import { scrapeFullArticle } from "./articleScraper.js";
-import { generateHybridHTML } from "./hybridGenerator.js";
-import { detectCategory } from "./categoryDetector.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function runPipeline() {
   try {
-    console.log("🚀 PIB Intelligence Pipeline Started...");
+    console.log("🚀 PIB Official Feed Pipeline Started...");
 
     const dataDir = path.join(__dirname, "../data");
     if (!fs.existsSync(dataDir)) {
@@ -27,44 +25,45 @@ async function runPipeline() {
 
     // 1️⃣ Fetch PIB RSS
     const rssArticles = await fetchRSSArticles();
-    console.log("📰 Total PIB Articles:", rssArticles.length);
+    console.log("📰 Total RSS Articles:", rssArticles.length);
 
-    const scrapedArticles = [];
+    // 2️⃣ Deduplicate using PRID
+    const seenPRIDs = new Set();
+    const uniqueArticles = [];
 
-    // 2️⃣ Scrape ALL articles
     for (const article of rssArticles) {
+      const match = article.link.match(/PRID=(\d+)/);
+      if (!match) continue;
 
+      const prid = match[1];
+
+      if (!seenPRIDs.has(prid)) {
+        seenPRIDs.add(prid);
+        uniqueArticles.push(article);
+      }
+    }
+
+    console.log("🔁 Unique PIB Articles:", uniqueArticles.length);
+
+    // 3️⃣ Scrape All
+    const finalOutput = [];
+
+    for (const article of uniqueArticles) {
       const scraped = await scrapeFullArticle(article.link);
 
       if (!scraped || !scraped.content || scraped.content.length < 50) {
-        console.log("⚠ Skipped (empty content):", article.title);
+        console.log("⚠ Skipped:", article.title);
         continue;
       }
 
-      scrapedArticles.push({
-        title: scraped.headline || article.title,
-        link: article.link,
-        content: scraped.content
-      });
-    }
-
-    console.log("📝 Successfully Scraped:", scrapedArticles.length);
-
-    // 3️⃣ Generate for ALL
-    const finalOutput = [];
-
-    for (const article of scrapedArticles) {
-      const generatedHTML = await generateHybridHTML(article);
-      const category = detectCategory(article);
-
       finalOutput.push({
-        headline: article.title,
-        summaryText: generatedHTML,
-        category
+        headline: scraped.headline || article.title,
+        fullText: scraped.content,
+        source: article.link
       });
     }
 
-    console.log("🎯 Generated Articles:", finalOutput.length);
+    console.log("📝 Successfully Scraped:", finalOutput.length);
 
     // 4️⃣ Save JSON
     fs.writeFileSync(
