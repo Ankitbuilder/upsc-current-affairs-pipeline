@@ -3,71 +3,128 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
+/* =========================================
+   CLEAN HTML
+========================================= */
 function cleanHTML($) {
   $("script, style, noscript, iframe, header, footer, nav, form, svg").remove();
   $(".advertisement, .ads, .ad, .social-share, .related, .story-related-news").remove();
   return $;
 }
 
-function extractContent($) {
+/* =========================================
+   SAFE TEXT EXTRACTION
+========================================= */
+function safeTextExtract(elements, minLength = 40) {
+  let content = "";
+
+  elements.each((_, el) => {
+    const text = cheerio(el).text().trim();
+    if (text.length > minLength) {
+      content += text + "\n\n";
+    }
+  });
+
+  return content.trim();
+}
+
+/* =========================================
+   PIB EXTRACTION
+========================================= */
+function extractPIB($) {
+  let content = "";
+
+  const mainContainer = $("#ContentPlaceHolder1_StoryContent");
+
+  if (mainContainer.length) {
+    content = safeTextExtract(mainContainer.find("p, li"), 30);
+  }
+
+  return content;
+}
+
+/* =========================================
+   GENERIC EXTRACTION
+========================================= */
+function extractGeneric($) {
   let content = "";
 
   const articleTag = $("article");
 
   if (articleTag.length) {
-    articleTag.find("p, h2, h3, h4, li").each((_, el) => {
-      const text = $(el).text().trim();
-      if (text.length > 40) {
-        content += text + "\n\n";
-      }
-    });
-  } else {
-    $("p").each((_, el) => {
-      const text = $(el).text().trim();
-      if (text.length > 60) {
-        content += text + "\n\n";
-      }
-    });
+    content = safeTextExtract(articleTag.find("p, h2, h3, h4, li"));
   }
 
-  return content.trim();
+  if (!content || content.length < 300) {
+    content = safeTextExtract($("p"), 60);
+  }
+
+  return content;
 }
 
+/* =========================================
+   MAIN SCRAPER
+========================================= */
 export async function scrapeFullArticle(url) {
   try {
+
+    /* 🔥 FIX PIB URL STRUCTURE */
+    if (url.includes("pib.gov.in")) {
+      const match = url.match(/PRID=(\d+)/);
+      if (match) {
+        const prid = match[1];
+        url = `https://www.pib.gov.in/PressReleaseIframePage.aspx?PRID=${prid}&reg=3&lang=1`;
+      }
+    }
+
     const response = await axios.get(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         Accept: "text/html,application/xhtml+xml"
       },
-      timeout: 15000
+      timeout: 25000
     });
 
     const html = response.data;
 
-    if (!html || html.length < 1000) {
+    if (!html || html.length < 800) {
       console.log("⚠ Empty HTML:", url);
-      return null;
+      return {
+        headline: "",
+        content: ""
+      };
     }
 
     const $ = cheerio.load(html);
     cleanHTML($);
 
+    /* ===== HEADLINE ===== */
     let headline =
       $("meta[property='og:title']").attr("content") ||
-      $("h1").first().text().trim();
+      $("h1").first().text().trim() ||
+      $("title").text().trim() ||
+      "";
 
-    if (!headline || headline.length < 10) {
-      console.log("⚠ No headline:", url);
-      return null;
+    /* ===== CONTENT ===== */
+    let content = "";
+
+    if (url.includes("pib.gov.in")) {
+      content = extractPIB($);
+    } else {
+      content = extractGeneric($);
     }
 
-    const content = extractContent($);
+    /* 🔥 FINAL HARD FALLBACK */
+    if (!content || content.length < 200) {
+      content = safeTextExtract($("p"), 30);
+    }
 
-    if (!content || content.length < 500) {
-      console.log("⚠ Content too small:", url);
-      return null;
+    if (!headline) headline = "Untitled Article";
+
+    if (!content) {
+      console.log("⚠ Could not extract meaningful content:", url);
+      content = "";
     }
 
     console.log("✅ Scraped:", headline.substring(0, 60));
@@ -80,6 +137,10 @@ export async function scrapeFullArticle(url) {
 
   } catch (error) {
     console.log("❌ Scrape error:", url);
-    return null;
+
+    return {
+      headline: "",
+      content: ""
+    };
   }
 }
