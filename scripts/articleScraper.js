@@ -3,38 +3,116 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-function cleanHTML($, container) {
-  container.find("script").remove();
-  container.find("style").remove();
-  container.find("noscript").remove();
-  container.find("iframe").remove();
-  container.find("form").remove();
-  container.find("button").remove();
-  container.find("svg").remove();
+function cleanText(text) {
+  if (!text) return "";
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/Story continues below this ad/gi, "")
+    .replace(/Advertisement/gi, "")
+    .trim();
+}
 
-  container.find("a").each((_, el) => {
-    const text = $(el).text();
-    $(el).replaceWith(text);
+function removeUnwanted($) {
+  const unwantedSelectors = [
+    "script",
+    "style",
+    "meta",
+    "noscript",
+    "iframe",
+    "ev-engagement",
+    ".advertisement",
+    ".ads",
+    ".ad",
+    ".related",
+    ".share",
+    ".social",
+    ".promo",
+    ".subscription",
+    ".print",
+    "header",
+    "footer",
+    "nav"
+  ];
+
+  unwantedSelectors.forEach(selector => {
+    $(selector).remove();
   });
+}
 
-  container.find("*").each((_, el) => {
-    const attribs = el.attribs;
-    if (attribs) {
-      Object.keys(attribs).forEach(attr => {
-        if (attr !== "href") {
-          $(el).removeAttr(attr);
-        }
-      });
+function extractMainContent($, url) {
+  if (url.includes("pib.gov.in")) {
+    return $("#ContentPlaceHolder1_ArticleDetail").html();
+  }
+
+  if (url.includes("thehindu.com")) {
+    return $("div.articlebodycontent").html();
+  }
+
+  if (url.includes("indianexpress.com")) {
+    return $("div.full-details").html();
+  }
+
+  return $("article").html() || $("body").html();
+}
+
+function sanitizeStructuredHTML(rawHTML) {
+  const $ = cheerio.load(rawHTML);
+
+  removeUnwanted($);
+
+  const allowedTags = ["p", "ul", "ol", "li", "h2", "h3"];
+
+  $("*").each((_, el) => {
+    const tag = el.tagName?.toLowerCase();
+
+    if (!allowedTags.includes(tag)) {
+      $(el).replaceWith($(el).text());
     }
   });
 
-  return container.html() || "";
+  const cleanedParts = [];
+
+  $("p, ul, ol, h2, h3").each((_, el) => {
+    const tag = el.tagName.toLowerCase();
+
+    if (tag === "p") {
+      const text = cleanText($(el).text());
+      if (text.length > 40) {
+        cleanedParts.push(`<p>${text}</p>`);
+      }
+    }
+
+    if (tag === "h2" || tag === "h3") {
+      const text = cleanText($(el).text());
+      if (text.length > 5 && text.length < 120) {
+        cleanedParts.push(`<h3>${text}</h3>`);
+      }
+    }
+
+    if (tag === "ul" || tag === "ol") {
+      const items = [];
+      $(el)
+        .find("li")
+        .each((__, li) => {
+          const text = cleanText($(li).text());
+          if (text.length > 20) {
+            items.push(`<li>${text}</li>`);
+          }
+        });
+
+      if (items.length > 0) {
+        cleanedParts.push(`<ul>${items.join("")}</ul>`);
+      }
+    }
+  });
+
+  return cleanedParts.join("");
 }
 
 export async function scrapeFullArticle(url) {
   try {
     const response = await axios.get(url, {
-      timeout: 10000,
+      timeout: 15000,
       headers: {
         "User-Agent": "Mozilla/5.0"
       }
@@ -42,49 +120,16 @@ export async function scrapeFullArticle(url) {
 
     const $ = cheerio.load(response.data);
 
-    let articleContainer = null;
+    const rawHTML = extractMainContent($, url);
 
-    // PIB handling
-    if (url.includes("pib.gov.in")) {
-      articleContainer = $(".innner-page-main-about-us");
-      if (!articleContainer.length) {
-        articleContainer = $(".content-area");
-      }
-    }
+    if (!rawHTML) return "";
 
-    // The Hindu
-    if (!articleContainer || !articleContainer.length) {
-      if (url.includes("thehindu.com")) {
-        articleContainer = $("div.articlebodycontent");
-        if (!articleContainer.length) {
-          articleContainer = $("div#content-body-14269002");
-        }
-      }
-    }
+    const structuredClean = sanitizeStructuredHTML(rawHTML);
 
-    // Indian Express
-    if (!articleContainer || !articleContainer.length) {
-      if (url.includes("indianexpress.com")) {
-        articleContainer = $("div.story_details");
-      }
-    }
-
-    // Fallback: main article tag
-    if (!articleContainer || !articleContainer.length) {
-      articleContainer = $("article");
-    }
-
-    if (!articleContainer || !articleContainer.length) {
-      console.log("⚠ Could not extract main content:", url);
-      return "";
-    }
-
-    const cleanedHTML = cleanHTML($, articleContainer);
-
-    return cleanedHTML.trim();
+    return structuredClean;
 
   } catch (error) {
-    console.log("⚠ Scrape failed:", url);
+    console.log("❌ Scrape error:", url);
     return "";
   }
 }
