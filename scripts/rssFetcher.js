@@ -13,23 +13,21 @@ const parser = new Parser({
 });
 
 function extractImage(item) {
-  if (item.enclosure && item.enclosure.url) {
+  if (item.enclosure?.url) {
     return item.enclosure.url;
   }
 
-  if (item.mediaContent && item.mediaContent.length > 0) {
+  if (item.mediaContent?.length > 0) {
     return item.mediaContent[0].$.url;
   }
 
-  if (item.mediaThumbnail && item.mediaThumbnail.length > 0) {
+  if (item.mediaThumbnail?.length > 0) {
     return item.mediaThumbnail[0].$.url;
   }
 
   if (item.content) {
     const match = item.content.match(/<img[^>]+src="([^">]+)"/);
-    if (match) {
-      return match[1];
-    }
+    if (match) return match[1];
   }
 
   return null;
@@ -42,12 +40,12 @@ export async function fetchRSSArticles() {
     try {
       const feed = await parser.parseURL(url);
 
-      if (feed.items && feed.items.length > 0) {
+      if (feed.items?.length > 0) {
         feed.items.forEach(item => {
           allArticles.push({
             title: item.title || "",
             link: item.link || "",
-            content: item.contentSnippet || item.content || "",
+            content: "", // 🔥 DO NOT USE RSS SNIPPET
             imageUrl: extractImage(item)
           });
         });
