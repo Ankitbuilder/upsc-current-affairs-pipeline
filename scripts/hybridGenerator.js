@@ -6,6 +6,9 @@ import { generateStructuredHTML } from "./ruleBasedGenerator.js";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL = "llama3-70b-8192";
 
+/* ===============================
+   HTML VALIDATION
+================================ */
 function isValidHTML(output) {
   if (!output) return false;
   if (output.includes("```")) return false;
@@ -16,7 +19,18 @@ function isValidHTML(output) {
   return true;
 }
 
+/* ===============================
+   SAFE PROMPT BUILDER
+   (Prevents token overflow)
+================================ */
 function buildPrompt(article) {
+  const MAX_CHARS = 12000; // prevent token overflow
+
+  const safeContent =
+    article.content && article.content.length > MAX_CHARS
+      ? article.content.slice(0, MAX_CHARS)
+      : article.content || "";
+
   return `
 Generate structured UPSC Current Affairs content in clean HTML format only.
 
@@ -37,18 +51,23 @@ Structure:
 <h3>GS Paper Categorization</h3>
 
 Article Title:
-${article.title}
+${article.title || ""}
 
 Article Content:
-${article.content}
+${safeContent}
 `;
 }
 
+/* ===============================
+   HYBRID GENERATOR
+================================ */
 export async function generateHybridHTML(article) {
   try {
     const apiKey = process.env.GROQ_API_KEY;
 
+    // If key missing → directly fallback
     if (!apiKey) {
+      console.log("⚠ GROQ_API_KEY not found. Using rule engine.");
       return generateStructuredHTML(article);
     }
 
@@ -69,21 +88,29 @@ export async function generateHybridHTML(article) {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json"
         },
-        timeout: 15000
+        timeout: 45000 // increased from 15000 → prevents timeout failures
       }
     );
 
     const output =
-      response.data?.choices?.[0]?.message?.content || "";
+      response?.data?.choices?.[0]?.message?.content || "";
 
     if (isValidHTML(output)) {
       return output.trim();
     }
 
+    console.log("⚠ Groq returned invalid HTML. Using rule engine fallback.");
     return generateStructuredHTML(article);
 
   } catch (error) {
-    console.log("⚠ Groq API failed. Using rule engine fallback.");
+    console.log("⚠ Groq API failed:");
+    console.log(
+      error?.response?.data ||
+      error?.message ||
+      "Unknown Groq error"
+    );
+
+    console.log("Using rule engine fallback.");
     return generateStructuredHTML(article);
   }
 }
