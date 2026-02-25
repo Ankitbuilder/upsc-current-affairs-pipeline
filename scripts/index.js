@@ -6,13 +6,18 @@ import { fileURLToPath } from "url";
 
 import { uploadAllData } from "./uploadToR2.js";
 import { fetchRSSArticles } from "./rssFetcher.js";
+import { loadProcessedLinks, saveProcessedLinks, filterUnprocessed, markAsProcessed } from "./stateManager.js";
+import { scrapeFullArticle } from "./articleScraper.js";
+import { filterAndSortArticles } from "./relevanceEngine.js";
+import { generateStructuredHTML } from "./ruleBasedGenerator.js";
+import { detectCategory } from "./categoryDetector.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function runPipeline() {
   try {
-    console.log("🚀 UPSC Pipeline Started...");
+    console.log("🚀 UPSC Intelligence Pipeline Started...");
 
     const dataDir = path.join(__dirname, "../data");
 
@@ -20,57 +25,95 @@ async function runPipeline() {
       fs.mkdirSync(dataDir);
     }
 
-    // ===============================
-    // 1️⃣ GET TODAY DATE
-    // ===============================
-
     const todayObj = new Date();
     const today = todayObj.toISOString().split("T")[0];
 
     console.log("📅 Today:", today);
-
-    // ===============================
-    // 2️⃣ FETCH RSS ARTICLES
-    // ===============================
 
     console.log("📡 Fetching RSS feeds...");
     const rssArticles = await fetchRSSArticles();
 
     console.log("📰 Total RSS Articles:", rssArticles.length);
 
-    // Limit to first 8 articles for stability
-    const limitedArticles = rssArticles.slice(0, 8);
+    // Deduplicate by normalized title
+    const seenTitles = new Set();
+    const deduplicated = rssArticles.filter(article => {
+      const normalized = (article.title || "").toLowerCase().trim();
+      if (!normalized) return false;
+      if (seenTitles.has(normalized)) return false;
+      seenTitles.add(normalized);
+      return true;
+    });
 
-    // ===============================
-    // 3️⃣ PREPARE TODAY JSON
-    // ===============================
+    // Hindi filter
+    const hindiRegex = /[\u0900-\u097F]/;
+    const englishOnly = deduplicated.filter(article => {
+      return !hindiRegex.test(article.title) && !hindiRegex.test(article.content);
+    });
 
-    const formattedArticles = limitedArticles.map(article => ({
-      title: article.title || "",
-      link: article.link || "",
-      imageUrl: article.imageUrl || null,
-      content: article.content || "",
-      generatedAt: new Date().toISOString()
-    }));
+    const processedSet = loadProcessedLinks();
+    const unprocessed = filterUnprocessed(englishOnly, processedSet);
+
+    console.log("🆕 New Articles to Process:", unprocessed.length);
+
+    const scrapedArticles = [];
+
+    for (const article of unprocessed) {
+      try {
+        const fullContent = await scrapeFullArticle(article.link);
+
+        if (!fullContent || fullContent.length < 200) {
+          continue;
+        }
+
+        scrapedArticles.push({
+          title: article.title,
+          link: article.link,
+          content: fullContent,
+          imageUrl: article.imageUrl || null
+        });
+
+        markAsProcessed(processedSet, article.link);
+
+      } catch (err) {
+        console.log("⚠ Skipping article due to scrape error");
+      }
+    }
+
+    saveProcessedLinks(processedSet);
+
+    const relevantArticles = filterAndSortArticles(scrapedArticles);
+
+    const topArticles = relevantArticles.slice(0, 20);
+
+    console.log("🎯 Selected Top Articles:", topArticles.length);
+
+    const finalOutput = [];
+
+    for (const article of topArticles) {
+      try {
+        const generatedHTML = generateStructuredHTML(article);
+        const category = detectCategory(article);
+
+        finalOutput.push({
+          headline: article.title,
+          summaryText: generatedHTML,
+          category: category
+        });
+
+      } catch (err) {
+        console.log("⚠ Skipping article due to generation error");
+      }
+    }
 
     fs.writeFileSync(
       path.join(dataDir, `${today}.json`),
-      JSON.stringify(formattedArticles, null, 2)
+      JSON.stringify(finalOutput, null, 2)
     );
 
     console.log("✅ Today's JSON created.");
 
-    // ===============================
-    // 4️⃣ DATE MANAGEMENT LOGIC
-    // ===============================
-    // KEEP:
-    // 1 Jan 2025 → 9 Aug 2025 (fixed permanent archive)
-    // + today onward
-    // NEVER include 10 Aug 2025
-    // Remove unwanted middle dates
-
-    const archiveStart = new Date("2025-01-01");
-    const archiveEnd = new Date("2025-08-09"); // IMPORTANT: 9 AUG ONLY
+    // ===== UPDATED DATE MANAGEMENT (NO ARCHIVE LOGIC) =====
 
     const datesPath = path.join(dataDir, "dates.json");
 
@@ -80,38 +123,17 @@ async function runPipeline() {
       existingDates = JSON.parse(fs.readFileSync(datesPath));
     }
 
-    const finalDatesSet = new Set();
+    const dateSet = new Set(existingDates);
 
-    // Add fixed archive (1 Jan 2025 → 9 Aug 2025)
-    let temp = new Date(archiveStart);
-    while (temp <= archiveEnd) {
-      finalDatesSet.add(temp.toISOString().split("T")[0]);
-      temp.setDate(temp.getDate() + 1);
-    }
+    dateSet.add(today);
 
-    // Add today + future dates only
-    existingDates.forEach(dateStr => {
-      const dateObj = new Date(dateStr);
-      if (dateObj >= todayObj) {
-        finalDatesSet.add(dateStr);
-      }
-    });
-
-    // Always add today
-    finalDatesSet.add(today);
-
-    const finalDates = Array.from(finalDatesSet).sort((a, b) =>
+    const finalDates = Array.from(dateSet).sort((a, b) =>
       b.localeCompare(a)
     );
 
     fs.writeFileSync(datesPath, JSON.stringify(finalDates, null, 2));
 
-    console.log("✅ dates.json updated correctly.");
-    console.log("📆 Total Active Dates:", finalDates.length);
-
-    // ===============================
-    // 5️⃣ UPLOAD TO R2
-    // ===============================
+    console.log("✅ dates.json updated.");
 
     await uploadAllData();
 
