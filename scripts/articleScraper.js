@@ -3,133 +3,98 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-function cleanText(text) {
-  if (!text) return "";
-  return text
-    .replace(/\s+/g, " ")
-    .replace(/Story continues below this ad/gi, "")
-    .replace(/Advertisement/gi, "")
-    .trim();
+/**
+ * Clean unwanted tags and normalize text
+ */
+function cleanHTML($) {
+  // Remove unwanted elements
+  $("script, style, noscript, iframe, header, footer, nav, form, svg").remove();
+  $(".advertisement, .ads, .ad, .social-share, .related, .story-related-news").remove();
+
+  return $;
 }
 
-function removeUnwanted($) {
-  const unwantedSelectors = [
-    "script",
-    "style",
-    "meta",
-    "noscript",
-    "iframe",
-    "ev-engagement",
-    ".advertisement",
-    ".ads",
-    ".ad",
-    ".related",
-    ".share",
-    ".social",
-    ".promo",
-    ".subscription",
-    ".print",
-    "header",
-    "footer",
-    "nav"
-  ];
+/**
+ * Extract meaningful paragraphs
+ */
+function extractContent($) {
+  let content = "";
 
-  unwantedSelectors.forEach(selector => {
-    $(selector).remove();
-  });
-}
+  // Try structured article first
+  const articleTag = $("article");
 
-function extractMainContent($, url) {
-  if (url.includes("pib.gov.in")) {
-    return $("#ContentPlaceHolder1_ArticleDetail").html();
-  }
-
-  if (url.includes("thehindu.com")) {
-    return $("div.articlebodycontent").html();
-  }
-
-  if (url.includes("indianexpress.com")) {
-    return $("div.full-details").html();
-  }
-
-  return $("article").html() || $("body").html();
-}
-
-function sanitizeStructuredHTML(rawHTML) {
-  const $ = cheerio.load(rawHTML);
-
-  removeUnwanted($);
-
-  const allowedTags = ["p", "ul", "ol", "li", "h2", "h3"];
-
-  $("*").each((_, el) => {
-    const tag = el.tagName?.toLowerCase();
-
-    if (!allowedTags.includes(tag)) {
-      $(el).replaceWith($(el).text());
-    }
-  });
-
-  const cleanedParts = [];
-
-  $("p, ul, ol, h2, h3").each((_, el) => {
-    const tag = el.tagName.toLowerCase();
-
-    if (tag === "p") {
-      const text = cleanText($(el).text());
+  if (articleTag.length) {
+    articleTag.find("p, h2, h3, h4, li").each((_, el) => {
+      const text = $(el).text().trim();
       if (text.length > 40) {
-        cleanedParts.push(`<p>${text}</p>`);
-      }
-    }
-
-    if (tag === "h2" || tag === "h3") {
-      const text = cleanText($(el).text());
-      if (text.length > 5 && text.length < 120) {
-        cleanedParts.push(`<h3>${text}</h3>`);
-      }
-    }
-
-    if (tag === "ul" || tag === "ol") {
-      const items = [];
-      $(el)
-        .find("li")
-        .each((__, li) => {
-          const text = cleanText($(li).text());
-          if (text.length > 20) {
-            items.push(`<li>${text}</li>`);
-          }
-        });
-
-      if (items.length > 0) {
-        cleanedParts.push(`<ul>${items.join("")}</ul>`);
-      }
-    }
-  });
-
-  return cleanedParts.join("");
-}
-
-export async function scrapeFullArticle(url) {
-  try {
-    const response = await axios.get(url, {
-      timeout: 15000,
-      headers: {
-        "User-Agent": "Mozilla/5.0"
+        content += text + "\n\n";
       }
     });
+  } else {
+    // Fallback: collect all <p> tags
+    $("p").each((_, el) => {
+      const text = $(el).text().trim();
+      if (text.length > 60) {
+        content += text + "\n\n";
+      }
+    });
+  }
 
-    const $ = cheerio.load(response.data);
+  return content.trim();
+}
 
-    const rawHTML = extractMainContent($, url);
+/**
+ * Main Scraper
+ */
+export async function scrapeArticle(url) {
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Accept: "text/html,application/xhtml+xml"
+      },
+      timeout: 15000
+    });
 
-    if (!rawHTML) return "";
+    const html = response.data;
 
-    const structuredClean = sanitizeStructuredHTML(rawHTML);
+    if (!html || html.length < 1000) {
+      console.log("⚠ Empty or small HTML:", url);
+      return null;
+    }
 
-    return structuredClean;
+    const $ = cheerio.load(html);
 
+    cleanHTML($);
+
+    // Headline
+    let headline =
+      $("meta[property='og:title']").attr("content") ||
+      $("h1").first().text().trim();
+
+    if (!headline || headline.length < 10) {
+      console.log("⚠ No headline found:", url);
+      return null;
+    }
+
+    // Extract content
+    const content = extractContent($);
+
+    if (!content || content.length < 500) {
+      console.log("⚠ Content too small:", url);
+      return null;
+    }
+
+    console.log("✅ Scraped:", headline.substring(0, 60));
+    console.log("📏 Length:", content.length);
+
+    return {
+      headline,
+      content
+    };
   } catch (error) {
     console.log("❌ Scrape error:", url);
-    return "";
+    return null;
   }
 }
