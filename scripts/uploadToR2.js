@@ -1,16 +1,15 @@
 // scripts/uploadToR2.js
 
-const fs = require("fs");
-const path = require("path");
-const {
-  S3Client,
-  PutObjectCommand,
-} = require("@aws-sdk/client-s3");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
-// ==============================
-// Validate Required Environment Variables
-// ==============================
+// Needed for __dirname in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
+// Validate environment variables
 const requiredEnv = [
   "R2_ACCOUNT_ID",
   "R2_ACCESS_KEY_ID",
@@ -18,16 +17,13 @@ const requiredEnv = [
   "R2_BUCKET_NAME",
 ];
 
-requiredEnv.forEach((key) => {
+for (const key of requiredEnv) {
   if (!process.env[key]) {
     throw new Error(`Missing required environment variable: ${key}`);
   }
-});
+}
 
-// ==============================
-// Create R2 Client
-// ==============================
-
+// Create R2 client
 const r2 = new S3Client({
   region: "auto",
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -37,36 +33,23 @@ const r2 = new S3Client({
   },
 });
 
-// ==============================
-// Upload Function
-// ==============================
+// Upload single file
+async function uploadFile(localPath, remoteKey) {
+  const fileContent = fs.readFileSync(localPath);
 
-async function uploadFileToR2(localFilePath, remoteKey) {
-  try {
-    const fileContent = fs.readFileSync(localFilePath);
+  const command = new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME,
+    Key: remoteKey,
+    Body: fileContent,
+    ContentType: "application/json",
+  });
 
-    const command = new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME,
-      Key: remoteKey,
-      Body: fileContent,
-      ContentType: "application/json",
-    });
-
-    await r2.send(command);
-
-    console.log(`✅ Uploaded: ${remoteKey}`);
-  } catch (error) {
-    console.error(`❌ Failed uploading ${remoteKey}`);
-    console.error(error);
-    throw error;
-  }
+  await r2.send(command);
+  console.log(`✅ Uploaded: ${remoteKey}`);
 }
 
-// ==============================
-// Upload All Data Files
-// ==============================
-
-async function uploadAllData() {
+// Upload all JSON files in /data
+export async function uploadAllData() {
   const dataDir = path.join(__dirname, "../data");
 
   if (!fs.existsSync(dataDir)) {
@@ -77,14 +60,10 @@ async function uploadAllData() {
 
   for (const file of files) {
     if (file.endsWith(".json")) {
-      const localPath = path.join(dataDir, file);
-      await uploadFileToR2(localPath, file);
+      const fullPath = path.join(dataDir, file);
+      await uploadFile(fullPath, file);
     }
   }
 
   console.log("🎉 All files uploaded to R2 successfully.");
 }
-
-module.exports = {
-  uploadAllData,
-};
