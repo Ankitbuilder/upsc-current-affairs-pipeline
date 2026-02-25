@@ -1,0 +1,16 @@
+{
+  "name": "upsc-current-affairs-pipeline",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Automated UPSC Current Affairs Pipeline",
+  "main": "scripts/index.js",
+  "scripts": {
+    "start": "node scripts/index.js"
+  },
+  "dependencies": {
+    "rss-parser": "^3.13.0",
+    "axios": "^1.6.7",
+    "@aws-sdk/client-s3": "^3.540.0",
+    "dotenv": "^16.4.5"
+  }
+}
