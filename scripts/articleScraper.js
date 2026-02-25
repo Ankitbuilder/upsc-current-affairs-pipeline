@@ -4,8 +4,23 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 
 function cleanHTML($) {
-  $("script, style, noscript, iframe, header, footer, nav, form, svg").remove();
+  $("script, style, noscript, iframe").remove();
   return $;
+}
+
+function extractFromContainer($, selector) {
+  let content = "";
+
+  const container = $(selector);
+
+  container.find("p, li").each((_, el) => {
+    const text = $(el).text().trim();
+    if (text.length > 20) {
+      content += text + "\n\n";
+    }
+  });
+
+  return content.trim();
 }
 
 export async function scrapeFullArticle(url) {
@@ -13,15 +28,14 @@ export async function scrapeFullArticle(url) {
     const response = await axios.get(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
       },
       timeout: 25000
     });
 
     const html = response.data;
 
-    if (!html || html.length < 800) {
-      console.log("⚠ Empty HTML:", url);
+    if (!html) {
       return { headline: "", content: "" };
     }
 
@@ -35,20 +49,17 @@ export async function scrapeFullArticle(url) {
 
     let content = "";
 
-    const container = $("#ContentPlaceHolder1_StoryContent");
+    // 🔥 Try multiple PIB containers
+    content = extractFromContainer($, "#ContentPlaceHolder1_StoryContent");
 
-    container.find("p, li").each((_, el) => {
-      const text = $(el).text().trim();
-      if (text.length > 25) {
-        content += text + "\n\n";
-      }
-    });
+    if (!content)
+      content = extractFromContainer($, "#divContent");
 
-    content = content.trim();
+    if (!content)
+      content = extractFromContainer($, ".innner-page-content");
 
-    if (!content) {
-      console.log("⚠ No meaningful PIB content:", url);
-    }
+    if (!content)
+      content = extractFromContainer($, "body");
 
     console.log("✅ Scraped:", headline.substring(0, 60));
     console.log("📏 Length:", content.length);
