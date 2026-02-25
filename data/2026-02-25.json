@@ -1,23 +1,58 @@
 [
   {
-    "title": "Pipeline Test Entry",
-    "whyInNews": "Automated daily pipeline execution.",
-    "background": "Testing Cloudflare R2 + GitHub Actions integration.",
-    "keyHighlights": [
-      "Automation active",
-      "Date logic applied"
-    ],
-    "constitutionalProvisions": "N/A",
-    "significance": "Ensures daily current affairs update.",
-    "challenges": "None",
-    "wayForward": "Proceed with AI integration.",
-    "prelimsFacts": [
-      "Fact 1",
-      "Fact 2",
-      "Fact 3",
-      "Fact 4",
-      "Fact 5"
-    ],
-    "gsPaper": "GS2"
+    "title": "From Rs 8,000 salary to Rs 4 crore in trolley bags: Raids at Odisha mining official’s house leads to ‘massive recoveries’",
+    "link": "https://indianexpress.com/article/india/trolley-bags-raids-odisha-mining-official-house-massive-recoveries-10551301/",
+    "imageUrl": "https://images.indianexpress.com/2026/02/odisha-mining-raids-blur.jpg",
+    "content": "",
+    "generatedAt": "2026-02-25T08:59:58.744Z"
+  },
+  {
+    "title": "Not only be a good cop but also publicise it: MHA now wants all police stations to post their success stories on social media",
+    "link": "https://indianexpress.com/article/india/bprd-police-social-media-outreach-influencers-community-policing-guidelines-10551190/",
+    "imageUrl": "https://images.indianexpress.com/2026/02/MHA-police-social-media.jpg",
+    "content": "",
+    "generatedAt": "2026-02-25T08:59:58.744Z"
+  },
+  {
+    "title": "Gold Today Rate, February 25: Check 18, 22 and 24 carat gold prices Chennai, Mumbai, Delhi, Kolkata and other cities",
+    "link": "https://indianexpress.com/article/india/gold-today-rate-february-25-check-18-22-and-24-carat-gold-prices-chennai-mumbai-delhi-kolkata-and-other-cities-10550883/",
+    "imageUrl": "https://images.indianexpress.com/2026/02/gold-rate_20260112061351_20260203044032_20260209051316_20260218054316_20260225045501.jpg",
+    "content": "",
+    "generatedAt": "2026-02-25T08:59:58.744Z"
+  },
+  {
+    "title": "Tata Sons: Why Noel Tata has set conditions for Chandrasekaran’s extension",
+    "link": "https://indianexpress.com/article/explained/explained-economics/noel-tata-sons-chandrasekaran-extension-10551211/",
+    "imageUrl": "https://images.indianexpress.com/2026/02/Tata-sons.jpg",
+    "content": "",
+    "generatedAt": "2026-02-25T08:59:58.744Z"
+  },
+  {
+    "title": "Being Eileen Gu: The sparkle and shadow around the American representing China in the Winter Olympics",
+    "link": "https://indianexpress.com/article/explained/explained-sports/eileen-gu-american-representing-china-winter-olympics-10550362/",
+    "imageUrl": "https://images.indianexpress.com/2026/02/Eileen-Gu-1600.jpg",
+    "content": "",
+    "generatedAt": "2026-02-25T08:59:58.744Z"
+  },
+  {
+    "title": "As PM Modi visits Tel Aviv, a history of India-Israel ties over the years",
+    "link": "https://indianexpress.com/article/explained/modi-visit-india-israel-ties-netanyahu-10550021/",
+    "imageUrl": "https://images.indianexpress.com/2026/02/ex-modi-bibi_expl.jpg",
+    "content": "",
+    "generatedAt": "2026-02-25T08:59:58.744Z"
+  },
+  {
+    "title": "PM to flag off weekly Mangaluru-Rameswaram Express and Tambaram-Mangaluru Amrit Bharat Express on March 1",
+    "link": "https://www.thehindu.com/news/cities/Mangalore/pm-to-flag-off-weekly-mangaluru-rameswaram-express-and-tambaram-mangaluru-amrit-bharat-express-on-march-1/article70674622.ece",
+    "imageUrl": "https://th-i.thgim.com/public/incoming/h9pw53/article70674629.ece/alternates/LANDSCAPE_1200/10505_24_1_2026_14_53_5_1_IMG_7686.JPEG",
+    "content": "Mr. Modi would also flag off the Coimbatore-Dhanabad Amrit Bharat Express and the Nagercoil-Charlapalli Amrit Bharat Express from Madurai",
+    "generatedAt": "2026-02-25T08:59:58.744Z"
+  },
+  {
+    "title": "Six-month-old baby's finger chopped during discharge at private hospital in Bengaluru",
+    "link": "https://www.thehindu.com/news/national/karnataka/six-month-old-babys-finger-chopped-during-discharge-at-private-hospital-in-bengaluru/article70674718.ece",
+    "imageUrl": null,
+    "content": "The Indiranagar police registered an FIR charging the nurse, doctor and  hospital management under Section 125(b) (acts that endanger human life or personal safety through rash or negligent behaviour) of BNS",
+    "generatedAt": "2026-02-25T08:59:58.744Z"
   }
 ]
