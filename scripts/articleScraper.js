@@ -8,19 +8,12 @@ function cleanHTML($) {
   return $;
 }
 
-function extractFromContainer($, selector) {
-  let content = "";
+function normalizeImageUrl(src) {
+  if (!src) return null;
 
-  const container = $(selector);
+  if (src.startsWith("http")) return src;
 
-  container.find("p, li").each((_, el) => {
-    const text = $(el).text().trim();
-    if (text.length > 20) {
-      content += text + "\n\n";
-    }
-  });
-
-  return content.trim();
+  return "https://www.pib.gov.in" + src;
 }
 
 export async function scrapeFullArticle(url) {
@@ -36,7 +29,7 @@ export async function scrapeFullArticle(url) {
     const html = response.data;
 
     if (!html) {
-      return { headline: "", content: "" };
+      return { headline: "", content: "", images: [] };
     }
 
     const $ = cheerio.load(html);
@@ -48,29 +41,37 @@ export async function scrapeFullArticle(url) {
       "";
 
     let content = "";
+    let images = [];
 
-    // 🔥 Try multiple PIB containers
-    content = extractFromContainer($, "#ContentPlaceHolder1_StoryContent");
+    const container = $("#ContentPlaceHolder1_StoryContent");
 
-    if (!content)
-      content = extractFromContainer($, "#divContent");
+    // Extract text
+    container.find("p, li").each((_, el) => {
+      const text = $(el).text().trim();
+      if (text.length > 20) {
+        content += text + "\n\n";
+      }
+    });
 
-    if (!content)
-      content = extractFromContainer($, ".innner-page-content");
+    // Extract images
+    container.find("img").each((_, el) => {
+      const src = $(el).attr("src");
+      const fullUrl = normalizeImageUrl(src);
+      if (fullUrl) {
+        images.push(fullUrl);
+      }
+    });
 
-    if (!content)
-      content = extractFromContainer($, "body");
-
-    console.log("✅ Scraped:", headline.substring(0, 60));
-    console.log("📏 Length:", content.length);
+    content = content.trim();
 
     return {
       headline,
-      content
+      content,
+      images
     };
 
   } catch (error) {
     console.log("❌ PIB Scrape error:", url);
-    return { headline: "", content: "" };
+    return { headline: "", content: "", images: [] };
   }
 }
