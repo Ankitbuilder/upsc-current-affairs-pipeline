@@ -1,8 +1,8 @@
 export const RSS_SOURCES = [
 
   // ===== PIB (Government – Highest Priority) =====
-  "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3",
-  "https://pib.gov.in/RssMain.aspx?ModId=18&Lang=1&Regid=3",
+  "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3&reg=3",
+  "https://www.pib.gov.in/RssMain.aspx?ModId=18&Lang=1&Regid=3&reg=3",
 
   // ===== THE HINDU =====
   "https://www.thehindu.com/news/national/feeder/default.rss",
