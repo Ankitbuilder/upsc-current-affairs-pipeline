@@ -10,6 +10,11 @@ function normalizeImageUrl(src) {
 }
 
 export async function scrapeFullArticle(url) {
+
+  if (url.includes("PressReleaseIframePage")) {
+    url = url.replace("PressReleaseIframePage", "PressReleasePage");
+  }
+
   try {
     const response = await axios.get(url, {
       headers: {
