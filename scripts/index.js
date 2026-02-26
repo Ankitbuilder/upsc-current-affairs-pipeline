@@ -122,39 +122,48 @@ async function runPipeline() {
     console.log("📝 Successfully Scraped:", finalOutput.length);
 
     // ===============================
-    // 5️⃣ SAVE TODAY JSON (APPEND MODE)
-    // ===============================
-    const todayPath = path.join(dataDir, `${today}.json`);
+   // 5️⃣ SAVE TODAY JSON (APPEND MODE)
+  // ===============================
+  const todayPath = path.join(dataDir, `${today}.json`);
 
-    let existingData = [];
+  let existingData = [];
 
-    if (fs.existsSync(todayPath)) {
-      try {
-        existingData = JSON.parse(fs.readFileSync(todayPath));
-      } catch (err) {
-        console.log("⚠ Error reading existing file. Creating fresh.");
-        existingData = [];
-      }
+  if (fs.existsSync(todayPath)) {
+    try {
+      existingData = JSON.parse(fs.readFileSync(todayPath));
+    } catch (err) {
+      console.log("⚠ Error reading existing file. Creating fresh.");
+      existingData = [];
     }
+  }
 
-    // Merge old + new
-    const combinedData = [...existingData, ...finalOutput];
+  // Merge old + new
+  const combinedData = [...existingData, ...finalOutput];
 
-    // Remove duplicates safely using articleUrl
-    const uniqueMap = new Map();
-    for (const item of combinedData) {
-      uniqueMap.set(item.articleUrl, item);
+  // Remove duplicates safely using articleUrl
+  const uniqueMap = new Map();
+  for (const item of combinedData) {
+    uniqueMap.set(item.articleUrl, item);
+  }
+
+  const finalMerged = Array.from(uniqueMap.values());
+
+  const newContent = JSON.stringify(finalMerged, null, 2);
+
+  let shouldWriteToday = true;
+
+  if (fs.existsSync(todayPath)) {
+    const currentContent = fs.readFileSync(todayPath, "utf8");
+    if (currentContent === newContent) {
+      shouldWriteToday = false;
+      console.log("⏭ No change in today's JSON.");
     }
+  }
 
-    const finalMerged = Array.from(uniqueMap.values());
-
-    fs.writeFileSync(
-      todayPath,
-      JSON.stringify(finalMerged, null, 2)
-    );
-
-    console.log("✅ Today's JSON updated without overwrite.");
-
+  if (shouldWriteToday) {
+    fs.writeFileSync(todayPath, newContent);
+    console.log("✅ Today's JSON updated.");
+  }
     // ===============================
     // 6️⃣ UPDATE dates.json
     // ===============================
@@ -163,19 +172,29 @@ async function runPipeline() {
     let existingDates = [];
 
     if (fs.existsSync(datesPath)) {
-      existingDates = JSON.parse(fs.readFileSync(datesPath));
-    }
+        existingDates = JSON.parse(fs.readFileSync(datesPath));
+      }
 
     if (!existingDates.includes(today)) {
       existingDates.unshift(today);
+      }
+
+    const newDatesContent = JSON.stringify(existingDates, null, 2);
+
+    let shouldWriteDates = true;
+
+    if (fs.existsSync(datesPath)) {
+      const currentDatesContent = fs.readFileSync(datesPath, "utf8");
+    if (currentDatesContent === newDatesContent) {
+        shouldWriteDates = false;
+        console.log("⏭ No change in dates.json.");
+      }
     }
 
-    fs.writeFileSync(
-      datesPath,
-      JSON.stringify(existingDates, null, 2)
-    );
-
-    console.log("✅ dates.json updated.");
+    if (shouldWriteDates) {
+        fs.writeFileSync(datesPath, newDatesContent);
+        console.log("✅ dates.json updated.");
+      }
 
     // ===============================
     // 7️⃣ UPLOAD TO R2
