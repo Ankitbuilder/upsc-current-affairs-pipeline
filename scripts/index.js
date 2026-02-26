@@ -121,6 +121,7 @@ async function runPipeline() {
 
     console.log("📝 Successfully Scraped:", finalOutput.length);
 
+    let dataChanged = false;
     // ===============================
    // 5️⃣ SAVE TODAY JSON (APPEND MODE)
   // ===============================
@@ -163,6 +164,7 @@ async function runPipeline() {
   if (shouldWriteToday) {
     fs.writeFileSync(todayPath, newContent);
     console.log("✅ Today's JSON updated.");
+    dataChanged = true;
   }
     // ===============================
     // 6️⃣ UPDATE dates.json
@@ -194,12 +196,17 @@ async function runPipeline() {
     if (shouldWriteDates) {
         fs.writeFileSync(datesPath, newDatesContent);
         console.log("✅ dates.json updated.");
-      }
+        dataChanged = true;
+    }
 
     // ===============================
     // 7️⃣ UPLOAD TO R2
     // ===============================
-    await uploadAllData();
+    if (dataChanged) {
+        await uploadAllData();
+    } else {
+      console.log("⏭ No data changes. Skipping upload.");
+    }
 
     console.log("🎉 Pipeline completed successfully.");
 
