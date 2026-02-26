@@ -39,27 +39,42 @@ export async function scrapeFullArticle(url) {
     let images = [];
 
     // ✅ Correct PIB container from screenshot
-    const container = $(".innner-page-main-about-us-content-right-part");
+    let container = $(".innner-page-main-about-us-content-right-part");
 
-    if (!container || container.length === 0) {
-      console.log("⚠ PIB container not found:", url);
-      return null;
+    if (container && container.length > 0) {
+
+      // Extract paragraphs
+      container.find("p").each((_, el) => {
+        const text = $(el).text().trim();
+        if (text.length > 30) {
+          content += text + "\n\n";
+        }
+      });
+
+      // Extract images
+      container.find("img").each((_, el) => {
+        const src = $(el).attr("src");
+        const fullUrl = normalizeImageUrl(src);
+        if (fullUrl) images.push(fullUrl);
+      });
+
+    } else {
+
+      console.log("ℹ Using iframe fallback layout:", url);
+
+      $("ol li, p").each((_, el) => {
+        const text = $(el).text().trim();
+        if (text.length > 30) {
+          content += text + "\n\n";
+        }
+      });
+
+      $("img").each((_, el) => {
+        const src = $(el).attr("src");
+        const fullUrl = normalizeImageUrl(src);
+        if (fullUrl) images.push(fullUrl);
+      });
     }
-
-    // Extract paragraphs
-    container.find("p").each((_, el) => {
-      const text = $(el).text().trim();
-      if (text.length > 30) {
-        content += text + "\n\n";
-      }
-    });
-
-    // Extract images
-    container.find("img").each((_, el) => {
-      const src = $(el).attr("src");
-      const fullUrl = normalizeImageUrl(src);
-      if (fullUrl) images.push(fullUrl);
-    });
 
     content = content.trim();
 
