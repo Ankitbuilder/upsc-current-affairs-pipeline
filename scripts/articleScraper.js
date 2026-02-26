@@ -27,7 +27,7 @@ export async function scrapeFullArticle(url) {
 
     const html = response.data;
 
-    if (!html || html.length < 2000) {
+    if (!html || html.length < 800) {
       console.log("⚠ HTML too small:", url);
       return null;
     }
