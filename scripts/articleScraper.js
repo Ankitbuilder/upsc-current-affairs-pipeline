@@ -67,7 +67,7 @@ export async function scrapeFullArticle(url) {
 
       console.log("ℹ Using iframe fallback layout:", url);
 
-      $("ol li, p").each((_, el) => {
+      $("ol li").each((_, el) => {
         const text = $(el).text().trim();
         if (text.length > 30) {
           content += text + "\n\n";
