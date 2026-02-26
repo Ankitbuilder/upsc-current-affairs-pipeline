@@ -2,8 +2,8 @@ name: UPSC Pipeline Test
 
 on:
   schedule:
-    - cron: '0 6 * * *'    # 11:30 AM IST
-    - cron: '0 18 * * *'   # 11:30 PM IST
+    - cron: '0 */6 * * *'  
+    
   workflow_dispatch:
 
 permissions:
