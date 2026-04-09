@@ -107,12 +107,13 @@ export async function uploadAllData() {
     }
   }
 
-  fs.writeFileSync(hashFilePath, JSON.stringify(newHashes, null, 2));
+ fs.writeFileSync(hashFilePath, JSON.stringify(newHashes, null, 2));
+
   await uploadFile(hashFilePath, ".uploadHashes.json");
   console.log("🎉 Only changed files uploaded to R2.");
 }
 
-// ✅ Correct placement: This MUST be outside the function at the bottom of the file
+// ✅ Corrected: Moved outside the function and removed duplicate declaration
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
   uploadAllData().catch(err => {
     console.error("❌ R2 Upload Failed:", err);
