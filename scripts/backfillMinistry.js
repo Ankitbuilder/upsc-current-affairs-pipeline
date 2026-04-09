@@ -24,6 +24,7 @@ const REQUEST_DELAY_MS = Number(process.env.REQUEST_DELAY_MS || 150);
 
 const REPORT_PATH = path.join(DATA_DIR, "ministry-backfill-report.json");
 const REVIEW_PATH = path.join(DATA_DIR, "ministry-review-needed.json");
+const ALL_RESULTS_PATH = path.join(DATA_DIR, "ministry-all-results.json");
 
 const SKIP_FILES = new Set([
   "dates.json",
@@ -31,6 +32,7 @@ const SKIP_FILES = new Set([
   ".uploadHashes.json",
   "ministry-backfill-report.json",
   "ministry-review-needed.json",
+  "ministry-all-results.json",
 ]);
 
 const FALLBACK_LABELS = new Set([
@@ -193,7 +195,7 @@ function verifyWrittenFile(filePath, expectedCount) {
   return { ok: true, reason: "" };
 }
 
-async function processFile(fileName, report, reviewItems) {
+async function processFile(fileName, report, reviewItems, allResults) {
   const filePath = path.join(DATA_DIR, fileName);
   const backupPath = `${filePath}.bak`;
 
@@ -224,13 +226,26 @@ async function processFile(fileName, report, reviewItems) {
 
     const result = await resolveMinistryForArticle(article);
 
+    const finalMinistry = canonicalizePibSource(result.ministry);
+
     const updated = {
       ...article,
-      ministry: canonicalizePibSource(result.ministry),
+      ministry: finalMinistry,
     };
 
     delete updated.category;
     updatedArticles.push(updated);
+
+    allResults.push({
+      file: fileName,
+      index,
+      headline: updated.headline || "",
+      articleUrl: updated.articleUrl || "",
+      ministry: finalMinistry || "",
+      source: result.source,
+      debugCandidates: result.debugCandidates || [],
+      fetchError: result.fetchError || null,
+    });
 
     if (result.source === "existing") report.sourceCounts.existing += 1;
     if (result.source === "summary") report.sourceCounts.summary += 1;
@@ -335,22 +350,25 @@ async function runBackfill() {
   };
 
   const reviewItems = [];
+  const allResults = [];
 
   const files = fs.readdirSync(DATA_DIR).filter(isJsonDataFile).sort();
 
   for (const fileName of files) {
     console.log(`🔍 Processing ${fileName}`);
-    await processFile(fileName, report, reviewItems);
+    await processFile(fileName, report, reviewItems, allResults);
   }
 
   report.finishedAt = new Date().toISOString();
 
   safeWriteJson(REPORT_PATH, report);
   safeWriteJson(REVIEW_PATH, reviewItems);
+  safeWriteJson(ALL_RESULTS_PATH, allResults);
 
   console.log("✅ Backfill finished");
   console.log(`📄 Report: ${REPORT_PATH}`);
   console.log(`📝 Review list: ${REVIEW_PATH}`);
+  console.log(`📚 All results: ${ALL_RESULTS_PATH}`);
 }
 
 runBackfill().catch((error) => {
