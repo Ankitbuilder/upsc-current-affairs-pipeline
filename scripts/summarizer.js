@@ -34,6 +34,8 @@ async function summarizeForUPSC(text) {
   - LENGTH REQUIREMENT: Your summary MUST be approximately ${targetWords} words long.
   - DO NOT provide a one-word or one-sentence response.
   - Use a professional and informative tone.
+  - Give new facts if you think it is needed 
+  - New Fact should be relevant to article only not any random fact 
 
   Article content: ${cleanText} [/INST]`;
 
@@ -57,10 +59,7 @@ async function runSummarizer() {
   console.log("🤖 Starting UPSC Summarizer & Data Healing...");
 
   // Temporary 2000-day window to heal all existing data
-  const recentFiles = Array.from({length: 2000}, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    return `${d.toISOString().split('T')[0]}.json`;
-  });
+ const recentFiles = ["2026-02-27.json"];
 
   const files = fs.readdirSync(dataDir).filter(f => recentFiles.includes(f));
   
