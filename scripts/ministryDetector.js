@@ -385,7 +385,7 @@ export function extractMinistry($) {
 
   const centeredCandidates = collectCenteredCandidates($, headline);
   const preHeadlineCandidates = collectPreHeadlineCandidates($, headline);
-  const topBlockCandidates = collectTopBlockCandidates($, headline, "body");
+  const topBlockCandidates = collectTopBlockCandidates($, headline, "body > *:nth-child(-n+12)");
 
   const allCandidates = [
     ...selectorCandidates,
