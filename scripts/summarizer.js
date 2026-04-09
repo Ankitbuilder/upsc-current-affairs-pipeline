@@ -52,9 +52,9 @@ async function runSummarizer() {
 
     for (let item of data) {
       // 🚀 THE BACKFILL LOGIC:
-      // If summaryText is long (>500 chars) and fullText is empty, 
+      // If summaryText is long (>50 chars) and fullText is empty, 
       // it means it's one of your 1700 old articles. We move it.
-      if (item.summaryText && item.summaryText.length > 500 && !item.fullText) {
+      if (item.summaryText && item.summaryText.length > 50 && !item.fullText) {
         item.fullText = item.summaryText;
         item.summaryText = null; 
         fileModified = true;
