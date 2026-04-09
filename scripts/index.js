@@ -219,13 +219,7 @@ async function runPipeline() {
     // ===============================
     // 7️⃣ UPLOAD TO R2
     // ===============================
-    if (dataChanged) {
-        await uploadAllData();
-    } else {
-      console.log("⏭ No data changes. Skipping upload.");
-    }
-
-    console.log("🎉 Pipeline completed successfully.");
+  console.log("🎉 Fetching Pipeline completed successfully.");
 
   } catch (error) {
     console.error("❌ Pipeline failed:");
