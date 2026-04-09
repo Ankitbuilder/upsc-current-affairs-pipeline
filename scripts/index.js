@@ -118,7 +118,7 @@ async function runPipeline() {
           
         fullText: cleanedHTML,
           
-        summaryText: null,
+        summaryText: cleanedHTML,
 
         category: finalCategory,
 
