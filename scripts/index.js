@@ -6,7 +6,6 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import { uploadAllData } from "./uploadToR2.js";
 import { fetchRSSArticles } from "./rssFetcher.js";
 import { scrapeFullArticle } from "./articleScraper.js";
 import { detectCategory } from "./categoryDetector.js";
