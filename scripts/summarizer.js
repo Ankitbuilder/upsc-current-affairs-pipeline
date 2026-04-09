@@ -13,9 +13,6 @@ const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
-const batchIndex = parseInt(process.argv[2]) || 0;
-const totalBatches = parseInt(process.argv[3]) || 1;
-
 function stripHtml(html) {
   const $ = cheerio.load(html || "");
   return $("body").text().replace(/\s+/g, " ").trim();
@@ -25,8 +22,8 @@ async function getDeepSummary(text, headline) {
   let cleanText = stripHtml(text);
   const words = cleanText.split(/\s+/).filter(w => w.length > 0);
   
-  // 🚀 FIX 413: Aggressive slicing to prevent "Payload Too Large"
-  const slicedText = words.slice(0, 1500).join(" ");
+  // 🚀 SLICER: Keep input small to save your TPM quota
+  const slicedText = words.slice(0, 1000).join(" ");
   const targetWords = Math.max(Math.floor(words.length / 3), 200);
 
   const prompt = `Provide a DETAILED UPSC study note. 
@@ -45,44 +42,34 @@ async function getDeepSummary(text, headline) {
     try {
       const isGroq = p.name === 'Groq';
       const body = isGroq 
-        ? { model: p.model, messages: [{ role: "user", content: prompt }], max_tokens: 1500 }
-        : { prompt, max_tokens: 1500 };
+        ? { model: p.model, messages: [{ role: "user", content: prompt }], max_tokens: 1000 }
+        : { prompt, max_tokens: 1000 };
 
       const res = await axios.post(p.url, body, {
         headers: { Authorization: `Bearer ${p.key}` },
-        timeout: 45000
+        timeout: 40000
       });
 
       const output = isGroq ? res.data.choices[0].message.content : res.data.result.response;
       if (output && output.length > 200) return output;
 
     } catch (e) {
-      const status = e.response?.status;
-      console.warn(`⚠️ ${p.name} failed (${status}).`);
-      
-      // 🚀 FIX 429: If rate limited, wait 30 seconds before trying next provider
-      if (status === 429) {
-        console.log("🛑 Rate limit hit. Cooling down for 30s...");
-        await new Promise(r => setTimeout(r, 30000));
-      }
+      console.warn(`⚠️ ${p.name} failed (${e.response?.status || 'Timeout'}).`);
+      if (e.response?.status === 429) await new Promise(r => setTimeout(r, 30000));
     }
   }
   return null;
 }
 
 async function runSummarizer() {
-  // 🚀 FIX COLLISION: Staggered start based on batch index
-  const jitter = batchIndex * 15000; 
-  console.log(`🤖 Batch ${batchIndex + 1} waiting ${jitter/1000}s to stagger...`);
-  await new Promise(r => setTimeout(r, jitter));
-
+  console.log("🤖 Starting Stable Single-Runner Pipeline...");
   const startTime = Date.now();
-  const MAX_RUNTIME = 320 * 60 * 1000;
+  const MAX_RUNTIME = 330 * 60 * 1000; // 5.5 hours
 
-  const allFiles = fs.readdirSync(dataDir).filter(f => f.endsWith(".json")).sort();
-  const myFiles = allFiles.filter((_, i) => i % totalBatches === batchIndex).reverse();
+  // Get all files and process from newest to oldest
+  const allFiles = fs.readdirSync(dataDir).filter(f => f.endsWith(".json")).sort().reverse();
 
-  for (const file of myFiles) {
+  for (const file of allFiles) {
     if (Date.now() - startTime > MAX_RUNTIME) break;
 
     const filePath = path.join(dataDir, file);
@@ -96,7 +83,7 @@ async function runSummarizer() {
       const isBroken = item.summaryText && (item.summaryText.includes("<p>") || item.summaryText.length < 350);
 
       if ((!item.summaryText || isPlaceholder || isBroken) && item.fullText) {
-        // Solution 3: Noise Filtering
+        // Noise Filter
         const noise = ["condoles", "grief", "tribute", "congratulates", "greets", "warm wishes"];
         if (noise.some(word => item.headline?.toLowerCase().includes(word))) {
           item.summaryText = stripHtml(item.fullText).substring(0, 400) + "...";
@@ -104,14 +91,14 @@ async function runSummarizer() {
           continue;
         }
 
-        console.log(`Deep Summarizing: ${item.headline?.substring(0, 40)}...`);
+        console.log(`Summarizing: ${item.headline?.substring(0, 40)}...`);
         const summary = await getDeepSummary(item.fullText, item.headline || "");
         
         if (summary) {
           item.summaryText = summary;
           modified = true;
-          // 🚀 GLOBAL THROTTLE: 12s delay to accommodate 5 parallel runners
-          await new Promise(r => setTimeout(r, 12000)); 
+          // 🚀 STABLE DELAY: 15 seconds to ensure you never hit a rate limit
+          await new Promise(r => setTimeout(r, 15000)); 
         }
       }
     }
