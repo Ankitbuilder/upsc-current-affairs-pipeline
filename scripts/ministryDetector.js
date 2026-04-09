@@ -347,7 +347,8 @@ function collectTopBlockCandidates($, headline, rootSelector = "body") {
       if (text === headline) return;
       if (isBadCandidate(text)) return;
       if (text.length > 120) return;
-      if (seen.has(text)) return;
+      if (seen.has(text)) return
+      if (!/^(ministry|department|commission|secretariat|office|authority)/i.test(text)) return;
 
       seen.add(text);
       candidates.push(text);
@@ -388,12 +389,8 @@ export function extractMinistry($) {
   const topBlockCandidates = collectTopBlockCandidates($, headline, "body > *:nth-child(-n+12)");
 
   const allCandidates = [
-    ...selectorCandidates,
-    ...centeredCandidates,
-    ...preHeadlineCandidates,
     ...topBlockCandidates,
-  ];
-
+      ];
   const debugCandidates = rankCandidates(allCandidates, headline);
   const ministry = debugCandidates[0] || "";
 
