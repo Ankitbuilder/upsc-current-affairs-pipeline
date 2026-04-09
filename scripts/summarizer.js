@@ -67,7 +67,10 @@ async function runSummarizer() {
 
   // CHANGE LOGIC: We only look for your specific demo file or the last 7 days.
   // This prevents scanning 2000 days of folders every time.
-  const filesToProcess = ["2026-02-27.json"]; 
+   const recentFiles = Array.from({length: 2000}, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    return `${d.toISOString().split('T')[0]}.json`;
+    }); 
 
   for (const file of filesToProcess) {
     const filePath = path.join(dataDir, file);
