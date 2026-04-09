@@ -1,88 +1,43 @@
-name: Backfill Category
+name: UPSC Pipeline Test
 
 on:
+  schedule:
+    - cron: '0 */6 * * *'
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "preview or write"
-        required: true
-        default: "preview"
-        type: choice
-        options:
-          - preview
-          - write
-      date:
-        description: "Optional single date file, example 2026-04-09"
-        required: false
-        default: ""
-      limit:
-        description: "Optional max number of articles to process"
-        required: false
-        default: ""
 
 permissions:
   contents: write
 
 jobs:
-  backfill:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Important for pulling before push
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Install dependencies
         run: npm install
 
-      - name: Run backfill script
-        shell: bash
-        run: |
-          CMD="node scripts/backfillCategory.js"
-
-          if [ "${{ inputs.mode }}" = "write" ]; then
-            CMD="$CMD --write"
-          fi
-
-          if [ -n "${{ inputs.date }}" ]; then
-            CMD="$CMD --date=${{ inputs.date }}"
-          fi
-
-          if [ -n "${{ inputs.limit }}" ]; then
-            CMD="$CMD --limit=${{ inputs.limit }}"
-          fi
-
-          echo "Running: $CMD"
-          eval "$CMD"
-
-      - name: Upload updated JSON files to R2
-        if: ${{ inputs.mode == 'write' }}
+      - name: Run pipeline script
+        run: node scripts/index.js
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+      - name: Commit generated data
         run: |
-          node --input-type=module -e "import { uploadAllData } from './scripts/uploadToR2.js'; await uploadAllData();"
-
-      - name: Commit backfilled data
-        if: ${{ inputs.mode == 'write' }}
-        shell: bash
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          git add data/*.json
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Backfill category values"
-            git push
-          fi
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git pull origin main
+          git add data/*
+          git commit -m "Generated daily JSON update" || echo "No changes"
+          git push
