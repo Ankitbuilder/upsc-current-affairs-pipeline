@@ -1,21 +1,37 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-const TEST_URL = "https://pib.gov.in/PressReleasePage.aspx?PRID=2248970";
-
-function cleanText(text) {
+export function cleanText(text) {
   return (text || "").replace(/\s+/g, " ").trim();
 }
 
-function normalizeQuotes(text) {
+export function normalizeQuotes(text) {
   return (text || "")
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .trim();
 }
 
-function isBadCandidate(text) {
-  const t = normalizeQuotes(cleanText(text)).toLowerCase();
+export function normalizeMinistry(text) {
+  let t = normalizeQuotes(cleanText(text));
+
+  t = t.replace(/\s*\/\s*/g, " / ");
+  t = t.replace(/\s{2,}/g, " ").trim();
+  t = t.replace(/[|•·]+$/g, "").trim();
+  t = t.replace(/^[:\-–—\s]+/, "").trim();
+
+  return t;
+}
+
+export function stripHtml(html) {
+  if (!html) return "";
+  const $ = cheerio.load(`<div id="__root__">${html}</div>`);
+  return cleanText($("#__root__").text());
+}
+
+export function isBadCandidate(text) {
+  const raw = normalizeQuotes(cleanText(text));
+  const t = raw.toLowerCase();
 
   return (
     !t ||
@@ -23,35 +39,62 @@ function isBadCandidate(text) {
     t.length > 120 ||
     t === "home" ||
     t === "skip to main content" ||
-    /^posted on[:\s]/i.test(t) ||
-    /^entry date[:\s]*/i.test(t) ||
-    /^date[:\s]*/i.test(t) ||
-    /^प्रविष्टि तिथि[:\s]*/i.test(text) ||
-    /^प्रकाशित तिथि[:\s]*/i.test(text) ||
-    /^share[:\s]*/i.test(t) ||
-    /^print[:\s]*/i.test(t) ||
+    /^posted on[:\s]/i.test(raw) ||
+    /^entry date[:\s]*/i.test(raw) ||
+    /^date[:\s]*/i.test(raw) ||
+    /^प्रविष्टि तिथि[:\s]*/i.test(raw) ||
+    /^प्रकाशित तिथि[:\s]*/i.test(raw) ||
+    /^share[:\s]*/i.test(raw) ||
+    /^print[:\s]*/i.test(raw) ||
+    /^read this release in[:\s]*/i.test(raw) ||
     /facebook|twitter|whatsapp|linkedin|instagram|youtube|telegram|email/i.test(t) ||
     /azadi ka amrit mahotsav/i.test(t) ||
-    /pib delhi/i.test(t) ||
-    /press information bureau/i.test(t)
+    /press information bureau/i.test(t) ||
+    /pib delhi/i.test(t)
   );
 }
 
-function scoreCandidate(text) {
+export function scoreCandidate(text) {
   const t = cleanText(text);
+  const lower = t.toLowerCase();
   let score = 0;
 
   if (!isBadCandidate(t)) score += 5;
-  if (/commission|ministry|department|secretariat|office|bureau|authority|board|council|directorate|mission|niti|railway|railways|eci|upsc/i.test(t)) score += 20;
-  if (/prime minister'?s office|president'?s secretariat|election commission|union public service commission/i.test(t)) score += 25;
-  if (t.split(" ").length <= 8) score += 8;
-  if (t.split(" ").length <= 5) score += 5;
+
+  if (
+    /commission|ministry|department|secretariat|office|bureau|authority|board|council|directorate|mission|niti|railway|railways|eci|upsc/i.test(t)
+  ) {
+    score += 20;
+  }
+
+  if (
+    /prime minister'?s office|president'?s secretariat|election commission|Upsc|ECI|Supreme Court|Department|union public service commission/i.test(
+      lower
+    )
+  ) {
+    score += 25;
+  }
+
+  if (/^ministry of /i.test(t)) score += 30;
+  if (/^department of /i.test(t)) score += 24;
+  if (/^prime minister'?s office$/i.test(t)) score += 35;
+  if (/^president'?s secretariat$/i.test(t)) score += 35;
+  if (/^niti aayog$/i.test(t)) score += 30;
+  if (/^ministry$/i.test(t)) score -= 40;
+  if (/^department$/i.test(t)) score -= 40;
+
+  const wordCount = t.split(/\s+/).length;
+  if (wordCount <= 8) score += 8;
+  if (wordCount <= 5) score += 5;
   if (!/[.:]{2,}/.test(t)) score += 2;
+
+  if (/[.!?]/.test(t)) score -= 10;
+  if (/,/.test(t) && wordCount > 8) score -= 8;
 
   return score;
 }
 
-function getHeadline($) {
+export function getHeadline($) {
   const headlineSelectors = [
     "h2",
     "h1",
@@ -89,7 +132,11 @@ function collectCenteredCandidates($, headline) {
     if (isBadCandidate(text)) return;
 
     const childText = cleanText(
-      $el.children().map((__, child) => $(child).text()).get().join(" ")
+      $el
+        .children()
+        .map((__, child) => $(child).text())
+        .get()
+        .join(" ")
     );
 
     if (childText && childText === text) {
@@ -137,7 +184,41 @@ function collectPreHeadlineCandidates($, headline) {
   return candidates;
 }
 
-function extractMinistry($) {
+function collectTopBlockCandidates($, headline, rootSelector = "body") {
+  const candidates = [];
+  const seen = new Set();
+
+  $(rootSelector)
+    .find("p, div, li, span, strong, b, td")
+    .each((_, el) => {
+      if (candidates.length >= 20) return false;
+
+      const text = cleanText($(el).text());
+      if (!text) return;
+      if (text === headline) return;
+      if (isBadCandidate(text)) return;
+      if (text.length > 120) return;
+      if (seen.has(text)) return;
+
+      seen.add(text);
+      candidates.push(text);
+      return undefined;
+    });
+
+  return candidates;
+}
+
+function rankCandidates(candidates, headline = "") {
+  const uniqueCandidates = [...new Set(candidates)]
+    .map((text) => normalizeMinistry(text))
+    .filter((text) => text && !isBadCandidate(text) && text !== headline);
+
+  uniqueCandidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+
+  return uniqueCandidates;
+}
+
+export function extractMinistry($) {
   const headline = getHeadline($);
 
   const selectorCandidates = [
@@ -155,56 +236,93 @@ function extractMinistry($) {
 
   const centeredCandidates = collectCenteredCandidates($, headline);
   const preHeadlineCandidates = collectPreHeadlineCandidates($, headline);
+  const topBlockCandidates = collectTopBlockCandidates($, headline, "body");
 
   const allCandidates = [
     ...selectorCandidates,
     ...centeredCandidates,
     ...preHeadlineCandidates,
+    ...topBlockCandidates,
   ];
 
-  const uniqueCandidates = [...new Set(allCandidates)].filter(
-    (text) => text && !isBadCandidate(text) && text !== headline
-  );
-
-  uniqueCandidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+  const debugCandidates = rankCandidates(allCandidates, headline);
+  const ministry = debugCandidates[0] || "";
 
   return {
-    ministry: uniqueCandidates[0] || "",
+    ministry,
     headline,
-    debugCandidates: uniqueCandidates,
+    debugCandidates,
   };
 }
 
-async function main() {
-  const response = await axios.get(TEST_URL, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36",
-      "Accept":
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Cache-Control": "no-cache",
-      "Pragma": "no-cache",
-    },
-    timeout: 30000,
-  });
-
-  const $ = cheerio.load(response.data);
-
-  const { ministry, headline, debugCandidates } = extractMinistry($);
-
-  console.log("URL:", TEST_URL);
-  console.log("HEADLINE:", headline || "[EMPTY]");
-  console.log("MINISTRY:", ministry || "[EMPTY]");
-  console.log("DEBUG CANDIDATES:", JSON.stringify(debugCandidates, null, 2));
-
-  if (!ministry) {
-    console.log("NO MINISTRY FOUND");
-    process.exitCode = 1;
-  }
+export function extractMinistryFromHtml(html) {
+  const $ = cheerio.load(html || "");
+  return extractMinistry($);
 }
 
-main().catch((error) => {
-  console.error("ERROR:", error.message);
-  process.exit(1);
-});
+export function extractMinistryFromSummary(summaryHtml) {
+  const $ = cheerio.load(`<div id="summary-root">${summaryHtml || ""}</div>`);
+  const candidates = collectTopBlockCandidates($, "", "#summary-root");
+  const debugCandidates = rankCandidates(candidates, "");
+  const ministry = debugCandidates[0] || "";
+
+  return {
+    ministry,
+    headline: "",
+    debugCandidates,
+  };
+}
+
+async function fetchWithRetry(url, retries = 3) {
+  let attempt = 0;
+
+  while (attempt < retries) {
+    try {
+      return await axios.get(url, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36",
+          "Accept":
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+          "Referer": "https://pib.gov.in/",
+        },
+        timeout: 30000,
+      });
+    } catch (error) {
+      attempt += 1;
+      if (attempt >= retries) throw error;
+      await new Promise((resolve) =>
+        setTimeout(resolve, 1000 * Math.pow(2, attempt))
+      );
+    }
+  }
+
+  throw new Error("Unreachable fetch retry state");
+}
+
+export async function detectMinistryFromUrl(url) {
+  if (!url) {
+    return {
+      ministry: "",
+      headline: "",
+      debugCandidates: [],
+      error: "Missing article URL",
+    };
+  }
+
+  try {
+    const response = await fetchWithRetry(url);
+    const result = extractMinistryFromHtml(response.data);
+    return { ...result, error: null };
+  } catch (error) {
+    return {
+      ministry: "",
+      headline: "",
+      debugCandidates: [],
+      error: error.message || "Unknown fetch error",
+    };
+  }
+}
