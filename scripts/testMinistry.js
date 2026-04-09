@@ -1,7 +1,7 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-const TEST_URL = ""https://www.pib.gov.in/PressReleaseIframePage.aspx?PRID=2232908&reg=3&lang=1";
+const TEST_URL = "https://www.pib.gov.in/PressReleaseIframePage.aspx?PRID=2232908&reg=3&lang=1";
 
 function cleanText(text) {
   return (text || "").replace(/\s+/g, " ").trim();
