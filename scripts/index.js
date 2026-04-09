@@ -10,6 +10,7 @@ import { uploadAllData } from "./uploadToR2.js";
 import { fetchRSSArticles } from "./rssFetcher.js";
 import { scrapeFullArticle } from "./articleScraper.js";
 import { detectCategory } from "./categoryDetector.js";
+import { extractMinistryFromUrl } from "./testMinistry.js";
 
 import {
   loadProcessedLinks,
@@ -93,18 +94,32 @@ async function runPipeline() {
       }
 
       const cleanedHTML = `<p>${scraped.content
-        .replace(/\n+/g, "</p><p>")
+      .replace(/\n+/g, "</p><p>")
       }</p>`;
 
-      finalOutput.push({
+      const fallbackCategory = detectCategory({
+          headline: scraped.headline,
+          fullText: scraped.content
+      });
+
+      let finalCategory = fallbackCategory;
+
+      try {
+          const { ministry } = await extractMinistryFromUrl(article.link);
+
+          if (ministry && ministry.trim()) {
+            finalCategory = ministry.trim();
+          }
+        } catch (error) {
+        console.log("⚠ Ministry detection failed, using fallback category:", error.message);
+          }
+
+        finalOutput.push({
         headline: scraped.headline || article.title,
 
         summaryText: cleanedHTML,
 
-        category: detectCategory({
-          headline: scraped.headline,
-          fullText: scraped.content
-        }),
+        category: finalCategory,
 
         imageUrl: scraped.images?.[0] || null,
         imageUrls: scraped.images || [],
