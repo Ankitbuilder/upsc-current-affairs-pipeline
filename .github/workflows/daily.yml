@@ -2,6 +2,7 @@ name: UPSC Pipeline Test
 
 on:
   schedule:
+    # Runs every 6 hours
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
@@ -16,28 +17,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Important for pulling before push
+          fetch-depth: 0 
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Install dependencies
         run: npm install
 
-      - name: Run pipeline script
+      # PHASE 1: Scrape PIB and save full text (No summarization here)
+      - name: Run Fetch Pipeline
         run: node scripts/index.js
+        env:
+          TZ: "Asia/Kolkata"
+
+      # PHASE 2: AI Summarization (Free via Cloudflare Workers AI)
+      # This handles both the 40 daily articles and the 1700 article backfill
+      - name: Run Summarizer Pipeline
+        run: node scripts/summarizer.js
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TZ: "Asia/Kolkata"
+
+      # PHASE 3: Upload finalized (summarized) files to R2
+      - name: Upload to Cloudflare R2
+        run: node scripts/uploadToR2.js
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
+      # PHASE 4: Sync JSON files back to your GitHub repo
       - name: Commit generated data
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git pull origin main
           git add data/*
-          git commit -m "Generated daily JSON update" || echo "No changes"
+          git commit -m "Generated daily JSON with AI summaries" || echo "No changes"
           git push
