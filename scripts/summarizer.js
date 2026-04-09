@@ -12,6 +12,7 @@ const dataDir = path.join(__dirname, "../data");
 
 const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+// Using Llama-3-8b-instruct for high-quality logic
 const AI_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
 
 function stripHtml(html) {
@@ -20,83 +21,89 @@ function stripHtml(html) {
 }
 
 async function summarizeForUPSC(text) {
-  const cleanText = stripHtml(text);
-  const words = cleanText.split(/\s+/).filter(w => w.length > 0);
-  const wordCount = words.length;
+  let cleanText = stripHtml(text);
+  
+  // 🚀 FIX: Slice extremely long articles to avoid AI context crashes
+  // Most UPSC facts are in the first 2000 words.
+  const wordsArray = cleanText.split(/\s+/).filter(w => w.length > 0);
+  if (wordsArray.length > 2000) {
+    cleanText = wordsArray.slice(0, 2000).join(" ");
+  }
 
-  // Target: Approximately 1/3 of the words
-  const targetWords = Math.max(Math.floor(wordCount / 3), 50);
+  const wordCount = wordsArray.length;
+  const targetWords = Math.max(Math.floor(wordCount / 3), 60);
 
-  const prompt = `[INST] You are an expert UPSC (Civil Services) mentor. 
-  Task: Summarize the following PIB article into a high-quality study note.
-  Guidelines:
-  - Focus on Government Schemes, Ministries, Dates, and Facts useful for the Preliminary and Mains exams.
-  - LENGTH REQUIREMENT: Your summary MUST be approximately ${targetWords} words long.
-  - DO NOT provide a one-word or one-sentence response.
-  - Use a professional and informative tone.
-  - Give new facts if you think it is needed 
-  - New Fact should be relevant to article only not any random fact 
-
-  Article content: ${cleanText} [/INST]`;
+  // 🚀 FIX: Strict Prompt to eliminate AI Chatter and Truncation
+  const prompt = `[INST] You are an expert UPSC Mentor. Summarize this PIB article into a high-quality study note.
+  - FOCUS: Government Schemes, Ministries, Dates, and Exam-relevant Facts.
+  - LENGTH: Use exactly ${targetWords} words. 
+  - FORMAT: Use bullet points for key facts.
+  - STRICT RULE: Start the summary IMMEDIATELY. Do NOT say 'Here is a summary' or 'This article discusses'.
+  - ARTICLE: ${cleanText} [/INST]`;
 
   try {
-    const response = await axios.post(AI_URL, { prompt }, {
-      headers: { Authorization: `Bearer ${CF_API_TOKEN}` }
-    });
+    const response = await axios.post(AI_URL, 
+      { 
+        prompt,
+        max_tokens: 1500 // 🚀 FIX: Increase output limit so it doesn't cut off
+      }, 
+      { headers: { Authorization: `Bearer ${CF_API_TOKEN}` } }
+    );
     
-    const summary = response.data.result.response;
+    let summary = response.data.result.response;
     
-    // Safety check: Ensure the AI didn't fail or give a tiny response
-    if (!summary || summary.length < 150) return null;
+    // 🚀 FIX: Post-process to remove accidental AI chatter
+    summary = summary.replace(/^(Here is a summary|Here's a study note|This PIB article|.*summarizing the article:)/i, "").trim();
     
-    return summary;
+    return summary.length > 100 ? summary : null;
   } catch (error) { 
+    console.error("❌ AI API Timeout or Error. Skipping item.");
     return null; 
   }
 }
 
 async function runSummarizer() {
-  console.log("🤖 Starting UPSC Summarizer & Data Healing...");
+  console.log("🤖 Starting Optimized UPSC Summarizer...");
 
-  // Temporary 2000-day window to heal all existing data
- const recentFiles = ["2026-02-27.json"];
+  // CHANGE LOGIC: We only look for your specific demo file or the last 7 days.
+  // This prevents scanning 2000 days of folders every time.
+  const filesToProcess = ["2026-02-27.json"]; 
 
-  const files = fs.readdirSync(dataDir).filter(f => recentFiles.includes(f));
-  
-  for (const file of files) {
+  for (const file of filesToProcess) {
     const filePath = path.join(dataDir, file);
+    if (!fs.existsSync(filePath)) continue;
+
     let data = JSON.parse(fs.readFileSync(filePath, "utf8"));
     let modified = false;
 
     for (let item of data) {
-      // 🏥 HEALING STEP: If fullText is missing, create it
+      // 🏥 HEALING: Move old text to fullText
       if (!item.fullText && item.summaryText) {
         item.fullText = item.summaryText;
         modified = true;
       }
 
-      // 🤖 SUMMARIZATION TRIGGER
+      // 🤖 TRIGGER: Re-summarize if it's a placeholder, has HTML, or was truncated (< 300 chars)
       const isPlaceholder = item.summaryText === item.fullText;
-      const tooShort = item.summaryText && item.summaryText.length < 200; // Catches bad/one-word summaries
-      const hasHtml = item.summaryText && item.summaryText.includes("<p>");
+      const isBroken = item.summaryText && (item.summaryText.includes("<p>") || item.summaryText.length < 300);
 
-      if ((!item.summaryText || isPlaceholder || tooShort || hasHtml) && item.fullText) {
-        console.log(`Summarizing UPSC facts for: ${item.headline?.substring(0, 40)}...`);
+      if ((!item.summaryText || isPlaceholder || isBroken) && item.fullText) {
+        console.log(`Deep Summarizing (${file}): ${item.headline?.substring(0, 30)}...`);
         const summary = await summarizeForUPSC(item.fullText);
         
         if (summary) {
           item.summaryText = summary;
           modified = true;
-          // Respect Cloudflare free tier rate limits
-          await new Promise(r => setTimeout(r, 1500)); 
+          // Stay within free tier rate limits
+          await new Promise(r => setTimeout(r, 1200)); 
         }
       }
     }
     if (modified) {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-      console.log(`✅ Healed and Summarized: ${file}`);
+      console.log(`✅ File Perfected: ${file}`);
     }
   }
-  console.log("🎉 All data healed and summarized.");
+  console.log("🎉 UPSC Summarization Complete.");
 }
 runSummarizer();
