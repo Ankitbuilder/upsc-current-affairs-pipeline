@@ -61,19 +61,25 @@ async function summarizeForUPSC(text) {
     return null; 
   }
 }
-
 async function runSummarizer() {
-  console.log("🤖 Starting Optimized UPSC Summarizer...");
+  console.log("🤖 Starting UPSC Summarizer (Backward Processing)...");
 
-  // CHANGE LOGIC: We only look for your specific demo file or the last 7 days.
-  // This prevents scanning 2000 days of folders every time.
-   const recentFiles = Array.from({length: 2000}, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - i);
+  // 1. Generate the list of dates for the last 2000 days
+  const filesToProcess = Array.from({ length: 2000 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
     return `${d.toISOString().split('T')[0]}.json`;
-    }); 
+  });
+
+  // 2. REVERSE the array to start from 2000 days ago and move toward today
+  filesToProcess.reverse(); 
+
+  console.log(`📂 Scanning up to ${filesToProcess.length} historical files...`);
 
   for (const file of filesToProcess) {
     const filePath = path.join(dataDir, file);
+    
+    // Skip if the file doesn't exist for that specific date
     if (!fs.existsSync(filePath)) continue;
 
     let data = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -86,7 +92,7 @@ async function runSummarizer() {
         modified = true;
       }
 
-      // 🤖 TRIGGER: Re-summarize if it's a placeholder, has HTML, or was truncated (< 300 chars)
+      // 🤖 TRIGGER: Re-summarize if placeholder, HTML-heavy, or too short
       const isPlaceholder = item.summaryText === item.fullText;
       const isBroken = item.summaryText && (item.summaryText.includes("<p>") || item.summaryText.length < 300);
 
@@ -97,11 +103,12 @@ async function runSummarizer() {
         if (summary) {
           item.summaryText = summary;
           modified = true;
-          // Stay within free tier rate limits
+          // Stay within Cloudflare free tier rate limits
           await new Promise(r => setTimeout(r, 1200)); 
         }
       }
     }
+
     if (modified) {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
       console.log(`✅ File Perfected: ${file}`);
