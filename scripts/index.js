@@ -116,8 +116,10 @@ async function runPipeline() {
 
         finalOutput.push({
         headline: scraped.headline || article.title,
-
-        summaryText: cleanedHTML,
+          
+        fullText: cleanedHTML,
+          
+        summaryText: null,
 
         category: finalCategory,
 
