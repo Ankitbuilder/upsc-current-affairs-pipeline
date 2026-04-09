@@ -1,4 +1,5 @@
 // scripts/summarizer.js
+import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import axios from "axios";
@@ -11,75 +12,92 @@ const dataDir = path.join(__dirname, "../data");
 
 const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
-
-const AI_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/facebook/bart-large-cnn`;
+const AI_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
 
 function stripHtml(html) {
   const $ = cheerio.load(html || "");
   return $("body").text().replace(/\s+/g, " ").trim();
 }
 
-async function summarizeArticle(text) {
-  const cleanTextContent = stripHtml(text);
-  const wordCount = cleanTextContent.split(/\s+/).length;
-  
-  // Enforce the 1/3 word count limit
-  const targetLength = Math.max(Math.floor(wordCount / 3), 30);
+async function summarizeForUPSC(text) {
+  const cleanText = stripHtml(text);
+  const words = cleanText.split(/\s+/).filter(w => w.length > 0);
+  const wordCount = words.length;
+
+  // Target: Approximately 1/3 of the words
+  const targetWords = Math.max(Math.floor(wordCount / 3), 50);
+
+  const prompt = `[INST] You are an expert UPSC (Civil Services) mentor. 
+  Task: Summarize the following PIB article into a high-quality study note.
+  Guidelines:
+  - Focus on Government Schemes, Ministries, Dates, and Facts useful for the Preliminary and Mains exams.
+  - LENGTH REQUIREMENT: Your summary MUST be approximately ${targetWords} words long.
+  - DO NOT provide a one-word or one-sentence response.
+  - Use a professional and informative tone.
+
+  Article content: ${cleanText} [/INST]`;
 
   try {
-    const response = await axios.post(
-      AI_URL,
-      { input_text: cleanTextContent, max_length: targetLength },
-      { headers: { Authorization: `Bearer ${CF_API_TOKEN}` } }
-    );
-    return response.data.result.summary;
-  } catch (error) {
-    console.error("AI Error:", error.response?.data || error.message);
-    return null;
+    const response = await axios.post(AI_URL, { prompt }, {
+      headers: { Authorization: `Bearer ${CF_API_TOKEN}` }
+    });
+    
+    const summary = response.data.result.response;
+    
+    // Safety check: Ensure the AI didn't fail or give a tiny response
+    if (!summary || summary.length < 150) return null;
+    
+    return summary;
+  } catch (error) { 
+    return null; 
   }
 }
 
 async function runSummarizer() {
-  console.log("🤖 Summarization & Backfill Pipeline Started...");
-  const files = fs.readdirSync(dataDir).filter(file => /^\d{4}-\d{2}-\d{2}\.json$/.test(file));
-  
-  let totalSummarized = 0;
+  console.log("🤖 Starting UPSC Summarizer & Data Healing...");
 
+  // Temporary 2000-day window to heal all existing data
+  const recentFiles = Array.from({length: 2000}, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    return `${d.toISOString().split('T')[0]}.json`;
+  });
+
+  const files = fs.readdirSync(dataDir).filter(f => recentFiles.includes(f));
+  
   for (const file of files) {
     const filePath = path.join(dataDir, file);
     let data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    let fileModified = false;
+    let modified = false;
 
     for (let item of data) {
-      // 🚀 THE BACKFILL LOGIC:
-      // If summaryText is long (>50 chars) and fullText is empty, 
-      // it means it's one of your 1700 old articles. We move it.
-      if (item.summaryText && item.summaryText.length > 50 && !item.fullText) {
+      // 🏥 HEALING STEP: If fullText is missing, create it
+      if (!item.fullText && item.summaryText) {
         item.fullText = item.summaryText;
-        item.summaryText = null; 
-        fileModified = true;
+        modified = true;
       }
 
-      // 🤖 THE SUMMARIZATION LOGIC:
-      if (!item.summaryText && item.fullText) {
-        console.log(`Processing: ${item.headline.substring(0, 50)}...`);
-        const summary = await summarizeArticle(item.fullText);
+      // 🤖 SUMMARIZATION TRIGGER
+      const isPlaceholder = item.summaryText === item.fullText;
+      const tooShort = item.summaryText && item.summaryText.length < 200; // Catches bad/one-word summaries
+      const hasHtml = item.summaryText && item.summaryText.includes("<p>");
+
+      if ((!item.summaryText || isPlaceholder || tooShort || hasHtml) && item.fullText) {
+        console.log(`Summarizing UPSC facts for: ${item.headline?.substring(0, 40)}...`);
+        const summary = await summarizeForUPSC(item.fullText);
+        
         if (summary) {
           item.summaryText = summary;
-          fileModified = true;
-          totalSummarized++;
-          // Delay to stay within free tier rate limits
-          await new Promise(res => setTimeout(res, 1200));
+          modified = true;
+          // Respect Cloudflare free tier rate limits
+          await new Promise(r => setTimeout(r, 1500)); 
         }
       }
     }
-
-    if (fileModified) {
+    if (modified) {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-      console.log(`✅ File Updated: ${file}`);
+      console.log(`✅ Healed and Summarized: ${file}`);
     }
   }
-  console.log(`🎉 Pipeline Complete. Summarized ${totalSummarized} articles.`);
+  console.log("🎉 All data healed and summarized.");
 }
-
 runSummarizer();
