@@ -2,7 +2,6 @@ name: UPSC Pipeline Test
 
 on:
   schedule:
-    # Runs every 6 hours
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
@@ -10,20 +9,14 @@ permissions:
   contents: write
 
 jobs:
-  summarize-and-sync:
+  summarize:
     runs-on: ubuntu-latest
-    strategy:
-      # fail-fast: false ensures if one batch fails, others continue
-      fail-fast: false 
-      matrix:
-        # Solution 1: Split the 1750 articles into 5 parallel runners
-        batch: [0, 1, 2, 3, 4]
+    # Timeout is set to 6 hours max
+    timeout-minutes: 360 
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -33,25 +26,19 @@ jobs:
       - name: Install dependencies
         run: npm install axios cheerio dotenv
 
-      # PHASE 1: Scrape PIB
-      # 🚀 SURGICAL FIX: Only the first runner (Batch 0) fetches new news to avoid 5x redundant hits on PIB
       - name: Run Fetch Pipeline
-        if: matrix.batch == 0
         run: node scripts/index.js
         env:
           TZ: "Asia/Kolkata"
 
-      # PHASE 2: AI Summarization (Multi-Model & Parallel)
-      # 🚀 SURGICAL FIX: Passes matrix info and Groq Key
       - name: Run Summarizer Pipeline
-        run: node scripts/summarizer.js ${{ matrix.batch }} 5
+        run: node scripts/summarizer.js
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TZ: "Asia/Kolkata"
 
-      # PHASE 3: Upload finalized files to R2
       - name: Upload to Cloudflare R2
         run: node scripts/uploadToR2.js
         env:
@@ -61,13 +48,11 @@ jobs:
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
 
-      # PHASE 4: Sync JSON files back to GitHub
-      # 🚀 SURGICAL FIX: Uses --rebase to handle 5 runners pushing at once
       - name: Commit generated data
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
+          git config --global user.name github-actions
+          git config --global user.email github-actions@github.com
           git add data/*
-          git pull --rebase origin main
-          git commit -m "Batch ${{ matrix.batch }} completed daily sync and backfill" || echo "No changes"
-          git push origin main
+          git pull origin main
+          git commit -m "Steady progress on UPSC summaries" || echo "No changes"
+          git push
