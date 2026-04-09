@@ -31,12 +31,10 @@ const r2 = new S3Client({
   },
 });
 
-// Generate SHA256 hash of file
 function generateHash(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
-// Upload single file
 async function uploadFile(localPath, remoteKey) {
   const fileContent = fs.readFileSync(localPath);
 
@@ -51,7 +49,6 @@ async function uploadFile(localPath, remoteKey) {
   console.log(`✅ Uploaded: ${remoteKey}`);
 }
 
-// Download hash file from R2 if exists
 async function downloadHashFile(remoteKey, localPath) {
   try {
     const command = new GetObjectCommand({
@@ -75,7 +72,6 @@ async function downloadHashFile(remoteKey, localPath) {
   }
 }
 
-// Upload only changed JSON files
 export async function uploadAllData() {
   const dataDir = path.join(__dirname, "../data");
   const hashFilePath = path.join(dataDir, ".uploadHashes.json");
@@ -112,8 +108,14 @@ export async function uploadAllData() {
   }
 
   fs.writeFileSync(hashFilePath, JSON.stringify(newHashes, null, 2));
-
   await uploadFile(hashFilePath, ".uploadHashes.json");
-
   console.log("🎉 Only changed files uploaded to R2.");
+}
+
+// ✅ Correct placement: This MUST be outside the function at the bottom of the file
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
+  uploadAllData().catch(err => {
+    console.error("❌ R2 Upload Failed:", err);
+    process.exit(1);
+  });
 }
