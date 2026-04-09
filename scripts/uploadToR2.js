@@ -1,5 +1,4 @@
 // scripts/uploadToR2.js
-
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -16,26 +15,34 @@ const requiredEnv = [
   "R2_BUCKET_NAME",
 ];
 
-for (const key of requiredEnv) {
-  if (!process.env[key]) {
-    throw new Error(`Missing required environment variable: ${key}`);
+/**
+ * Lazily initializes the R2 client only when needed.
+ * This prevents crashes when the file is imported in environments 
+ * without R2 credentials (like the initial scraping phase).
+ */
+function getR2Client() {
+  for (const key of requiredEnv) {
+    if (!process.env[key]) {
+      throw new Error(`Missing required environment variable: ${key}`);
+    }
   }
-}
 
-const r2 = new S3Client({
-  region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
+  return new S3Client({
+    region: "auto",
+    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    },
+  });
+}
 
 function generateHash(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
 async function uploadFile(localPath, remoteKey) {
+  const r2 = getR2Client();
   const fileContent = fs.readFileSync(localPath);
 
   const command = new PutObjectCommand({
@@ -51,6 +58,7 @@ async function uploadFile(localPath, remoteKey) {
 
 async function downloadHashFile(remoteKey, localPath) {
   try {
+    const r2 = getR2Client();
     const command = new GetObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
       Key: remoteKey,
@@ -107,13 +115,11 @@ export async function uploadAllData() {
     }
   }
 
- fs.writeFileSync(hashFilePath, JSON.stringify(newHashes, null, 2));
-
+  fs.writeFileSync(hashFilePath, JSON.stringify(newHashes, null, 2));
   await uploadFile(hashFilePath, ".uploadHashes.json");
   console.log("🎉 Only changed files uploaded to R2.");
 }
 
-// ✅ Corrected: Moved outside the function and removed duplicate declaration
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
   uploadAllData().catch(err => {
     console.error("❌ R2 Upload Failed:", err);
