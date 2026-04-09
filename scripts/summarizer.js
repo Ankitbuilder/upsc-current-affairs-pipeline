@@ -24,55 +24,58 @@ function stripHtml(html) {
 async function getDeepSummary(text, headline) {
   let cleanText = stripHtml(text);
   const words = cleanText.split(/\s+/).filter(w => w.length > 0);
-  const targetWords = Math.max(Math.floor(words.length / 2), 250);
+  
+  // 🚀 FIX 413: Aggressive slicing to prevent "Payload Too Large"
+  const slicedText = words.slice(0, 1500).join(" ");
+  const targetWords = Math.max(Math.floor(words.length / 3), 200);
 
-  const noise = ["condoles", "grief", "tribute", "congratulates", "greets", "warm wishes", "passed away"];
-  if (noise.some(word => headline.toLowerCase().includes(word))) {
-    return cleanText.substring(0, 500) + "... (News Summary)";
-  }
-
-  const prompt = `Provide a COMPREHENSIVE UPSC study note for this PIB article. 
+  const prompt = `Provide a DETAILED UPSC study note. 
   Sections: 1. CONTEXT, 2. KEY FEATURES, 3. SIGNIFICANCE, 4. UPSC RELEVANCE.
-  LENGTH: At least ${targetWords} words. 
-  ARTICLE: ${cleanText}`;
+  LENGTH: ~${targetWords} words. 
+  ARTICLE: ${slicedText}`;
 
-  // --- Provider 1: GROQ (Primary) ---
-  if (GROQ_API_KEY && GROQ_API_KEY.length > 10) {
+  // Provider Chain
+  const providers = [
+    { name: 'Groq', url: "https://api.groq.com/openai/v1/chat/completions", model: "llama-3.1-8b-instant", key: GROQ_API_KEY },
+    { name: 'Cloudflare', url: `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`, key: CF_API_TOKEN }
+  ];
+
+  for (const p of providers) {
+    if (!p.key) continue;
     try {
-      const groqRes = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-        // Updated to the most stable latest model
-        model: "llama-3.1-8b-instant", 
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 2000,
-        temperature: 0.5
-      }, { 
-        headers: { Authorization: `Bearer ${GROQ_API_KEY}` }, 
-        timeout: 30000 
+      const isGroq = p.name === 'Groq';
+      const body = isGroq 
+        ? { model: p.model, messages: [{ role: "user", content: prompt }], max_tokens: 1500 }
+        : { prompt, max_tokens: 1500 };
+
+      const res = await axios.post(p.url, body, {
+        headers: { Authorization: `Bearer ${p.key}` },
+        timeout: 45000
       });
-      
-      const res = groqRes.data.choices[0].message.content;
-      if (res && res.length > 200) return res;
+
+      const output = isGroq ? res.data.choices[0].message.content : res.data.result.response;
+      if (output && output.length > 200) return output;
+
     } catch (e) {
-      const code = e.response?.status;
-      console.warn(`⚠️ Groq failed (${code || 'Timeout'}). Trying Cloudflare...`);
-      if (code === 401) console.error("🛑 CRITICAL: Groq API Key is Invalid.");
+      const status = e.response?.status;
+      console.warn(`⚠️ ${p.name} failed (${status}).`);
+      
+      // 🚀 FIX 429: If rate limited, wait 30 seconds before trying next provider
+      if (status === 429) {
+        console.log("🛑 Rate limit hit. Cooling down for 30s...");
+        await new Promise(r => setTimeout(r, 30000));
+      }
     }
   }
-
-  // --- Provider 2: Cloudflare (Secondary) ---
-  const CF_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
-  try {
-    const cfRes = await axios.post(CF_URL, { prompt, max_tokens: 1800 }, 
-      { headers: { Authorization: `Bearer ${CF_API_TOKEN}` }, timeout: 60000 });
-    return cfRes.data.result.response;
-  } catch (e) {
-    console.error(`❌ Cloudflare Error: ${e.response?.status || 'Timeout'}`);
-    return null; 
-  }
+  return null;
 }
 
 async function runSummarizer() {
-  console.log(`🤖 Batch ${batchIndex + 1}/${totalBatches} active.`);
+  // 🚀 FIX COLLISION: Staggered start based on batch index
+  const jitter = batchIndex * 15000; 
+  console.log(`🤖 Batch ${batchIndex + 1} waiting ${jitter/1000}s to stagger...`);
+  await new Promise(r => setTimeout(r, jitter));
+
   const startTime = Date.now();
   const MAX_RUNTIME = 320 * 60 * 1000;
 
@@ -87,23 +90,28 @@ async function runSummarizer() {
     let modified = false;
 
     for (let item of data) {
-      if (!item.fullText && item.summaryText) {
-        item.fullText = item.summaryText;
-        modified = true;
-      }
+      if (!item.fullText && item.summaryText) item.fullText = item.summaryText;
 
       const isPlaceholder = item.summaryText === item.fullText;
       const isBroken = item.summaryText && (item.summaryText.includes("<p>") || item.summaryText.length < 350);
 
       if ((!item.summaryText || isPlaceholder || isBroken) && item.fullText) {
+        // Solution 3: Noise Filtering
+        const noise = ["condoles", "grief", "tribute", "congratulates", "greets", "warm wishes"];
+        if (noise.some(word => item.headline?.toLowerCase().includes(word))) {
+          item.summaryText = stripHtml(item.fullText).substring(0, 400) + "...";
+          modified = true;
+          continue;
+        }
+
         console.log(`Deep Summarizing: ${item.headline?.substring(0, 40)}...`);
         const summary = await getDeepSummary(item.fullText, item.headline || "");
         
         if (summary) {
           item.summaryText = summary;
           modified = true;
-          // Cooldown to avoid 429 errors
-          await new Promise(r => setTimeout(r, 3000)); 
+          // 🚀 GLOBAL THROTTLE: 12s delay to accommodate 5 parallel runners
+          await new Promise(r => setTimeout(r, 12000)); 
         }
       }
     }
