@@ -1,7 +1,22 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const TEST_URL = "https://www.pib.gov.in/PressReleaseIframePage.aspx?PRID=2232908&reg=3&lang=1";
+const TEST_URL = process.argv[2] || "";
+
+const REQUEST_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+};
+  const __filename = fileURLToPath(import.meta.url);
+  const isDirectRun =
+   process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename);
 
 const CANONICAL_ENTITIES = [
   "President's Secretariat",
@@ -481,7 +496,7 @@ function resolveCanonicalEntity(candidates) {
   return "";
 }
 
-function extractMinistry($) {
+export function extractMinistry($) {
   const headline = getHeadline($);
 
   const selectorCandidates = [
@@ -520,17 +535,12 @@ function extractMinistry($) {
   };
 }
 
-async function main() {
-  const response = await axios.get(TEST_URL, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-    },
+export async function extractMinistryFromUrl(url) {
+  if (!url) {
+    throw new Error("PIB article URL is required");
+   }
+  const response = await axios.get(url, {
+    headers: REQUEST_HEADERS,
     timeout: 30000,
   });
 
@@ -538,7 +548,22 @@ async function main() {
 
   const { ministry, headline, debugCandidates, matchedCanonical } = extractMinistry($);
 
-  console.log("URL:", TEST_URL);
+  return {
+    url,
+    ministry,
+    headline,
+    debugCandidates,
+    matchedCanonical,
+  };
+}
+
+async function main() {
+  const url = process.argv[2] || TEST_URL;
+
+  const { ministry, headline, debugCandidates, matchedCanonical } =
+    await extractMinistryFromUrl(url);
+
+  console.log("URL:", url);
   console.log("HEADLINE:", headline || "[EMPTY]");
   console.log("MINISTRY:", ministry || "[EMPTY]");
   console.log("MATCHED CANONICAL:", matchedCanonical || "[EMPTY]");
@@ -550,7 +575,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error("ERROR:", error.message);
-  process.exit(1);
-});
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error("ERROR:", error.message);
+    process.exit(1);
+  });
+}
