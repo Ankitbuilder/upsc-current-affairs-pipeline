@@ -197,7 +197,7 @@ async function runBackfill() {
   if (previewRows.length === 0) {
     console.log("");
     console.log("No category changes found.");
-  } else {
+  } else if (!isWriteMode) {
     console.log("");
     console.log("===== CATEGORY CHANGES =====");
     for (let i = 0; i < previewRows.length; i++) {
