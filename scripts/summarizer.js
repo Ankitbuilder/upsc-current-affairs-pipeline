@@ -9,11 +9,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataDir = path.join(__dirname, "../data");
 
-// API Keys
-const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
-const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+// 🚀 SURGICAL FIX: Added .trim() to destroy invisible spaces/newlines from GitHub Secrets
+const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID?.trim();
+const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN?.trim();
+const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
 
 function stripHtml(html) {
   const $ = cheerio.load(html || "");
@@ -24,7 +24,6 @@ async function getDeepSummary(text, headline) {
   let cleanText = stripHtml(text);
   const words = cleanText.split(/\s+/).filter(w => w.length > 0);
   
-  // 🚀 SLICER: 1000 words maximum to prevent 413/400 errors and save tokens
   const slicedText = words.slice(0, 1000).join(" ");
   const targetWords = Math.max(Math.floor(words.length / 3), 200);
 
@@ -33,7 +32,6 @@ async function getDeepSummary(text, headline) {
   LENGTH: ~${targetWords} words. 
   ARTICLE: ${slicedText}`;
 
-  // 🚀 TRI-MODEL CHAIN (Ranked by free tier generosity)
   const providers = [
     { id: 'Gemini', active: !!GEMINI_API_KEY },
     { id: 'Groq', active: !!GROQ_API_KEY },
@@ -46,19 +44,16 @@ async function getDeepSummary(text, headline) {
     try {
       let output = null;
 
-      // 1. GEMINI (15 RPM Free Tier)
       if (p.id === 'Gemini') {
-        // 🚀 SURGICAL FIX: Added "-latest" to the model name to fix the 404 Not Found error
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+        // Back to the standard, most stable model endpoint
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         const res = await axios.post(url, {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
         }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
         output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
       }
-        
       
-      // 2. GROQ (30k TPM Free Tier)
       else if (p.id === 'Groq') {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
           model: "llama-3.1-8b-instant",
@@ -68,7 +63,6 @@ async function getDeepSummary(text, headline) {
         output = res.data.choices?.[0]?.message?.content;
       }
 
-      // 3. CLOUDFLARE (10k Neurons/Day Free Tier)
       else if (p.id === 'Cloudflare') {
         const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
         const res = await axios.post(url, { prompt, max_tokens: 1000 }, {
@@ -77,25 +71,30 @@ async function getDeepSummary(text, headline) {
         output = res.data.result?.response;
       }
 
-      // If successful, return immediately
       if (output && output.length > 200) {
         console.log(`⚡ Success via ${p.id}`);
         return output.replace(/^(Here is a summary|Here's a study note|.*summarizing:)/i, "").trim();
       }
 
     } catch (e) {
+      // 🚀 SURGICAL FIX: Print the EXACT error message from the provider
       const status = e.response?.status || 'Timeout';
-      console.warn(`⚠️ ${p.id} failed (${status}). Falling back...`);
+      const detail = e.response?.data?.error?.message || e.message;
+      console.warn(`⚠️ ${p.id} failed (${status}): ${detail}`);
     }
   }
   
-  return null; // All models failed
+  return null;
 }
 
 async function runSummarizer() {
   console.log("🤖 Starting Bulletproof Tri-Model Pipeline...");
+  
+  // Quick check to ensure Gemini Key is loaded
+  if (!GEMINI_API_KEY) console.log("⚠️ WARNING: GEMINI_API_KEY is missing or empty!");
+
   const startTime = Date.now();
-  const MAX_RUNTIME = 330 * 60 * 1000; // 5.5 Hours Safety Window
+  const MAX_RUNTIME = 330 * 60 * 1000; 
 
   const allFiles = fs.readdirSync(dataDir).filter(f => f.endsWith(".json")).sort().reverse();
   
@@ -109,10 +108,8 @@ async function runSummarizer() {
     let data = JSON.parse(fs.readFileSync(filePath, "utf8"));
     let modified = false;
 
-    // 🚀 INNER LOOP: Precise control over articles
     for (let item of data) {
       
-      // 🚀 SURGICAL FIX: Check time before EVERY article, not just every file
       if (Date.now() - startTime > MAX_RUNTIME) {
         console.log("⏳ 5.5 Hour limit reached mid-file. Initiating graceful shutdown...");
         haltPipeline = true;
@@ -120,7 +117,6 @@ async function runSummarizer() {
       }
       if (haltPipeline) break;
 
-      // Healing Logic
       if (!item.fullText && item.summaryText) item.fullText = item.summaryText;
 
       const isPlaceholder = item.summaryText === item.fullText;
@@ -128,7 +124,6 @@ async function runSummarizer() {
 
       if ((!item.summaryText || isPlaceholder || isBroken) && item.fullText) {
         
-        // Noise Filter
         const noise = ["condoles", "grief", "tribute", "congratulates", "greets", "warm wishes", "passed away"];
         if (noise.some(word => item.headline?.toLowerCase().includes(word))) {
           item.summaryText = stripHtml(item.fullText).substring(0, 400) + "...";
@@ -142,7 +137,7 @@ async function runSummarizer() {
         if (summary) {
           item.summaryText = summary;
           modified = true;
-          consecutiveFails = 0; // Reset fails!
+          consecutiveFails = 0; 
         } else {
           consecutiveFails++;
           console.log(`❌ ALL Models Failed. Strike ${consecutiveFails}/4`);
@@ -154,14 +149,12 @@ async function runSummarizer() {
           }
         }
 
-        // 🚀 STEADY PACING: Wait 5 seconds to stay under Gemini's 15 RPM limit
         if (!haltPipeline) {
           await new Promise(r => setTimeout(r, 5000));
         }
       }
     }
     
-    // Save file if any articles inside it were modified
     if (modified) {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
       console.log(`✅ Progress Saved: ${file}`);
