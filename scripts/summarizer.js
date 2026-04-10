@@ -14,7 +14,6 @@ const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN?.trim();
 const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
 
-// Global cache for the auto-discovered Gemini model
 let autoGeminiModel = null;
 
 function stripHtml(html) {
@@ -22,7 +21,7 @@ function stripHtml(html) {
   return $("body").text().replace(/\s+/g, " ").trim();
 }
 
-async function getDeepSummary(text, headline) {
+async function getDeepSummary(text, headline, providers) {
   let cleanText = stripHtml(text);
   const words = cleanText.split(/\s+/).filter(w => w.length > 0);
   
@@ -34,22 +33,18 @@ async function getDeepSummary(text, headline) {
   LENGTH: ~${targetWords} words. 
   ARTICLE: ${slicedText}`;
 
-  const providers = [
-    { id: 'Gemini', active: !!GEMINI_API_KEY },
-    { id: 'Groq', active: !!GROQ_API_KEY },
-    { id: 'Cloudflare', active: !!CF_API_TOKEN && !!CF_ACCOUNT_ID }
-  ];
-
   for (const p of providers) {
     if (!p.active) continue;
     
     try {
       let output = null;
 
-      // 1. GEMINI (Auto-Discovery + 503 Patience Loop)
+      // ==========================================
+      // 1. GEMINI (Lite-First Auto-Discovery)
+      // ==========================================
       if (p.id === 'Gemini') {
         if (!autoGeminiModel) {
-          console.log("🔍 Auto-detecting allowed Gemini model for your API key...");
+          console.log("🔍 Scanning Google India endpoints for best high-volume model...");
           const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`;
           const listRes = await axios.get(listUrl, { timeout: 15000 });
           
@@ -59,41 +54,48 @@ async function getDeepSummary(text, headline) {
           );
 
           if (validModels.length > 0) {
-            // We trust the auto-discovery. Pick the first valid text model it finds.
-            autoGeminiModel = validModels[0].name; 
-            console.log(`✅ Google authorized model found: ${autoGeminiModel}`);
+            // 🚀 SMART ROUTING: Look for "flash-lite" first to bypass 503 traffic!
+            const preferred = validModels.find(m => m.name.includes("flash-lite")) || 
+                              validModels.find(m => m.name.includes("flash")) || 
+                              validModels[0];
+            
+            autoGeminiModel = preferred.name; 
+            console.log(`✅ Google Model Locked: ${autoGeminiModel}`);
           } else {
-            throw new Error("No text-generation models allowed for this API key.");
+            throw new Error("No allowed Gemini models found.");
           }
         }
 
         const url = `https://generativelanguage.googleapis.com/v1beta/${autoGeminiModel}:generateContent?key=${GEMINI_API_KEY}`;
         
-        // 🚀 THE FIX: Try up to 3 times if we hit a 503 traffic jam
+        // 🚀 THE PATIENCE LOOP: Handle 503s gracefully
         let attempts = 3;
         while (attempts > 0) {
           try {
             const res = await axios.post(url, {
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
-            }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+            }, { headers: { 'Content-Type': 'application/json' }, timeout: 35000 });
             
             output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-            break; // Success! Break out of the retry loop.
+            break; // Success! Break retry loop.
             
           } catch (error) {
-            if (error.response?.status === 503 && attempts > 1) {
-              console.log("⏳ Gemini servers are busy (503). Waiting 15 seconds to try again...");
-              await new Promise(r => setTimeout(r, 15000));
+            const statusCode = error.response?.status;
+            if (statusCode === 503 && attempts > 1) {
+              console.log("   ⏳ Gemini traffic jam (503). Waiting 20 seconds...");
+              await new Promise(r => setTimeout(r, 20000));
               attempts--;
             } else {
-              throw error; // If it's not a 503, or we ran out of attempts, throw it to the fallback
+              throw error; // Throw to the main catch block
             }
           }
         }
       }
       
+      // ==========================================
       // 2. GROQ
+      // ==========================================
       else if (p.id === 'Groq') {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
           model: "llama-3.1-8b-instant",
@@ -103,7 +105,9 @@ async function getDeepSummary(text, headline) {
         output = res.data.choices?.[0]?.message?.content;
       }
 
+      // ==========================================
       // 3. CLOUDFLARE
+      // ==========================================
       else if (p.id === 'Cloudflare') {
         const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
         const res = await axios.post(url, { prompt, max_tokens: 1000 }, {
@@ -120,7 +124,13 @@ async function getDeepSummary(text, headline) {
     } catch (e) {
       const status = e.response?.status || e.status || 'Error';
       const detail = e.response?.data?.error?.message || e.message;
-      console.warn(`⚠️ ${p.id} failed (${status}): ${detail}`);
+      console.warn(`⚠️ ${p.id} failed (${status})`);
+      
+      // 🚀 QUOTA MEMORY: If Groq or CF hit their absolute daily limit, turn them off for today!
+      if (status === 429 && detail.includes("tokens per day")) {
+        console.log(`🛑 ${p.id} daily quota exhausted. Deactivating for remainder of this run.`);
+        p.active = false;
+      }
     }
   }
   
@@ -128,9 +138,13 @@ async function getDeepSummary(text, headline) {
 }
 
 async function runSummarizer() {
-  console.log("🤖 Starting Bulletproof Tri-Model Pipeline (Auto-Discovery Edition)...");
+  console.log("🤖 Starting Ultimate Tri-Model Pipeline (India/GitHub Edition)...");
   
-  if (!GEMINI_API_KEY) console.log("⚠️ WARNING: GEMINI_API_KEY is missing or empty!");
+  const providers = [
+    { id: 'Gemini', active: !!GEMINI_API_KEY },
+    { id: 'Groq', active: !!GROQ_API_KEY },
+    { id: 'Cloudflare', active: !!CF_API_TOKEN && !!CF_ACCOUNT_ID }
+  ];
 
   const startTime = Date.now();
   const MAX_RUNTIME = 330 * 60 * 1000; 
@@ -149,7 +163,7 @@ async function runSummarizer() {
 
     for (let item of data) {
       if (Date.now() - startTime > MAX_RUNTIME) {
-        console.log("⏳ 5.5 Hour limit reached mid-file. Initiating graceful shutdown...");
+        console.log("⏳ 5.5 Hour limit reached. Initiating graceful shutdown...");
         haltPipeline = true;
         break; 
       }
@@ -170,7 +184,7 @@ async function runSummarizer() {
         }
 
         console.log(`Summarizing: ${item.headline?.substring(0, 40)}...`);
-        const summary = await getDeepSummary(item.fullText, item.headline || "");
+        const summary = await getDeepSummary(item.fullText, item.headline || "", providers);
         
         if (summary) {
           item.summaryText = summary;
@@ -178,17 +192,18 @@ async function runSummarizer() {
           consecutiveFails = 0; 
         } else {
           consecutiveFails++;
-          console.log(`❌ ALL Models Failed. Strike ${consecutiveFails}/4`);
+          console.log(`❌ ALL Active Models Failed. Strike ${consecutiveFails}/4`);
           
           if (consecutiveFails >= 4) {
-            console.error("🛑 CRITICAL: Gemini, Groq, and Cloudflare are ALL exhausted.");
-            console.error("🛑 Tripping Circuit Breaker. Pipeline will sleep until next cron cycle.");
+            console.error("🛑 CRITICAL: All API quotas are fully exhausted or blocked.");
+            console.error("🛑 Tripping Circuit Breaker to save progress and exit.");
             haltPipeline = true;
           }
         }
 
+        // Pacing delay
         if (!haltPipeline) {
-          await new Promise(r => setTimeout(r, 5000));
+          await new Promise(r => setTimeout(r, 6000));
         }
       }
     }
