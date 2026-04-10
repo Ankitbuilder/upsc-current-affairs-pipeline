@@ -42,6 +42,9 @@ async function getDeepSummary(text, headline, providers) {
       // ==========================================
       // 1. GEMINI (Lite-First Auto-Discovery)
       // ==========================================
+      // ==========================================
+      // 1. GEMINI (Lite-First Auto-Discovery + Cooldown Loop)
+      // ==========================================
       if (p.id === 'Gemini') {
         if (!autoGeminiModel) {
           console.log("🔍 Scanning Google India endpoints for best high-volume model...");
@@ -68,7 +71,7 @@ async function getDeepSummary(text, headline, providers) {
 
         const url = `https://generativelanguage.googleapis.com/v1beta/${autoGeminiModel}:generateContent?key=${GEMINI_API_KEY}`;
         
-        // 🚀 THE PATIENCE LOOP: Handle 503s gracefully
+        // 🚀 THE PATIENCE LOOP: Handle 503s (Traffic) and 429s (RPM limit) gracefully
         let attempts = 3;
         while (attempts > 0) {
           try {
@@ -82,12 +85,14 @@ async function getDeepSummary(text, headline, providers) {
             
           } catch (error) {
             const statusCode = error.response?.status;
-            if (statusCode === 503 && attempts > 1) {
-              console.log("   ⏳ Gemini traffic jam (503). Waiting 20 seconds...");
-              await new Promise(r => setTimeout(r, 20000));
+            
+            // 🚀 THE FIX: If Gemini hits the Per-Minute limit (429) or Traffic Jam (503), WAIT 30 seconds!
+            if ((statusCode === 503 || statusCode === 429) && attempts > 1) {
+              console.log(`   ⏳ Gemini busy/rate-limited (${statusCode}). Cooldown for 30 seconds...`);
+              await new Promise(r => setTimeout(r, 30000));
               attempts--;
             } else {
-              throw error; // Throw to the main catch block
+              throw error; // Throw to the main catch block if out of attempts
             }
           }
         }
