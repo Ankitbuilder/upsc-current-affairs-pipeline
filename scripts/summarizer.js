@@ -9,9 +9,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataDir = path.join(__dirname, "../data");
 
+// API Keys
 const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 function stripHtml(html) {
   const $ = cheerio.load(html || "");
@@ -22,7 +24,7 @@ async function getDeepSummary(text, headline) {
   let cleanText = stripHtml(text);
   const words = cleanText.split(/\s+/).filter(w => w.length > 0);
   
-  // 🚀 SLICER: Keep input small to save your TPM quota
+  // 🚀 SLICER: 1000 words maximum to prevent 413/400 errors and save tokens
   const slicedText = words.slice(0, 1000).join(" ");
   const targetWords = Math.max(Math.floor(words.length / 3), 200);
 
@@ -31,60 +33,101 @@ async function getDeepSummary(text, headline) {
   LENGTH: ~${targetWords} words. 
   ARTICLE: ${slicedText}`;
 
-  // Provider Chain
+  // 🚀 TRI-MODEL CHAIN (Ranked by free tier generosity)
   const providers = [
-    { name: 'Groq', url: "https://api.groq.com/openai/v1/chat/completions", model: "llama-3.1-8b-instant", key: GROQ_API_KEY },
-    { name: 'Cloudflare', url: `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`, key: CF_API_TOKEN }
+    { id: 'Gemini', active: !!GEMINI_API_KEY },
+    { id: 'Groq', active: !!GROQ_API_KEY },
+    { id: 'Cloudflare', active: !!CF_API_TOKEN && !!CF_ACCOUNT_ID }
   ];
 
   for (const p of providers) {
-    if (!p.key) continue;
+    if (!p.active) continue;
+    
     try {
-      const isGroq = p.name === 'Groq';
-      const body = isGroq 
-        ? { model: p.model, messages: [{ role: "user", content: prompt }], max_tokens: 1000 }
-        : { prompt, max_tokens: 1000 };
+      let output = null;
 
-      const res = await axios.post(p.url, body, {
-        headers: { Authorization: `Bearer ${p.key}` },
-        timeout: 40000
-      });
+      // 1. GEMINI (15 RPM Free Tier)
+      if (p.id === 'Gemini') {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        const res = await axios.post(url, {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
+        }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+        output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+      }
+      
+      // 2. GROQ (30k TPM Free Tier)
+      else if (p.id === 'Groq') {
+        const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+          model: "llama-3.1-8b-instant",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 1000
+        }, { headers: { Authorization: `Bearer ${GROQ_API_KEY}` }, timeout: 30000 });
+        output = res.data.choices?.[0]?.message?.content;
+      }
 
-      const output = isGroq ? res.data.choices[0].message.content : res.data.result.response;
-      if (output && output.length > 200) return output;
+      // 3. CLOUDFLARE (10k Neurons/Day Free Tier)
+      else if (p.id === 'Cloudflare') {
+        const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
+        const res = await axios.post(url, { prompt, max_tokens: 1000 }, {
+          headers: { Authorization: `Bearer ${CF_API_TOKEN}` }, timeout: 40000
+        });
+        output = res.data.result?.response;
+      }
+
+      // If successful, return immediately
+      if (output && output.length > 200) {
+        console.log(`⚡ Success via ${p.id}`);
+        return output.replace(/^(Here is a summary|Here's a study note|.*summarizing:)/i, "").trim();
+      }
 
     } catch (e) {
-      console.warn(`⚠️ ${p.name} failed (${e.response?.status || 'Timeout'}).`);
-      if (e.response?.status === 429) await new Promise(r => setTimeout(r, 30000));
+      const status = e.response?.status || 'Timeout';
+      console.warn(`⚠️ ${p.id} failed (${status}). Falling back...`);
     }
   }
-  return null;
+  
+  return null; // All models failed
 }
 
 async function runSummarizer() {
-  console.log("🤖 Starting Stable Single-Runner Pipeline...");
+  console.log("🤖 Starting Bulletproof Tri-Model Pipeline...");
   const startTime = Date.now();
-  const MAX_RUNTIME = 330 * 60 * 1000; // 5.5 hours
+  const MAX_RUNTIME = 330 * 60 * 1000; // 5.5 Hours Safety Window
 
-  // Get all files and process from newest to oldest
   const allFiles = fs.readdirSync(dataDir).filter(f => f.endsWith(".json")).sort().reverse();
+  
+  let consecutiveFails = 0;
+  let haltPipeline = false;
 
   for (const file of allFiles) {
-    if (Date.now() - startTime > MAX_RUNTIME) break;
+    if (haltPipeline) break;
 
     const filePath = path.join(dataDir, file);
     let data = JSON.parse(fs.readFileSync(filePath, "utf8"));
     let modified = false;
 
+    // 🚀 INNER LOOP: Precise control over articles
     for (let item of data) {
+      
+      // 🚀 SURGICAL FIX: Check time before EVERY article, not just every file
+      if (Date.now() - startTime > MAX_RUNTIME) {
+        console.log("⏳ 5.5 Hour limit reached mid-file. Initiating graceful shutdown...");
+        haltPipeline = true;
+        break; 
+      }
+      if (haltPipeline) break;
+
+      // Healing Logic
       if (!item.fullText && item.summaryText) item.fullText = item.summaryText;
 
       const isPlaceholder = item.summaryText === item.fullText;
       const isBroken = item.summaryText && (item.summaryText.includes("<p>") || item.summaryText.length < 350);
 
       if ((!item.summaryText || isPlaceholder || isBroken) && item.fullText) {
+        
         // Noise Filter
-        const noise = ["condoles", "grief", "tribute", "congratulates", "greets", "warm wishes"];
+        const noise = ["condoles", "grief", "tribute", "congratulates", "greets", "warm wishes", "passed away"];
         if (noise.some(word => item.headline?.toLowerCase().includes(word))) {
           item.summaryText = stripHtml(item.fullText).substring(0, 400) + "...";
           modified = true;
@@ -97,15 +140,37 @@ async function runSummarizer() {
         if (summary) {
           item.summaryText = summary;
           modified = true;
-          // 🚀 STABLE DELAY: 15 seconds to ensure you never hit a rate limit
-          await new Promise(r => setTimeout(r, 15000)); 
+          consecutiveFails = 0; // Reset fails!
+        } else {
+          consecutiveFails++;
+          console.log(`❌ ALL Models Failed. Strike ${consecutiveFails}/4`);
+          
+          if (consecutiveFails >= 4) {
+            console.error("🛑 CRITICAL: Gemini, Groq, and Cloudflare are ALL exhausted.");
+            console.error("🛑 Tripping Circuit Breaker. Pipeline will sleep until next cron cycle.");
+            haltPipeline = true;
+          }
+        }
+
+        // 🚀 STEADY PACING: Wait 5 seconds to stay under Gemini's 15 RPM limit
+        if (!haltPipeline) {
+          await new Promise(r => setTimeout(r, 5000));
         }
       }
     }
+    
+    // Save file if any articles inside it were modified
     if (modified) {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
       console.log(`✅ Progress Saved: ${file}`);
     }
   }
+  
+  if (haltPipeline) {
+    console.log("💤 Pipeline paused safely. GitHub Action will now commit and upload data.");
+  } else {
+    console.log("🎉 All historical files completely summarized!");
+  }
 }
+
 runSummarizer();
