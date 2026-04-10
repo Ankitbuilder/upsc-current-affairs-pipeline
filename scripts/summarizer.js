@@ -4,7 +4,6 @@ import path from "path";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { fileURLToPath } from "url";
-import { GoogleGenAI } from "@google/genai"; // 🚀 Official SDK added
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,8 +14,8 @@ const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN?.trim();
 const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
 
-// 🚀 Initialize official Google AI client
-const geminiClient = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
+// Global cache for the auto-discovered Gemini model
+let autoGeminiModel = null;
 
 function stripHtml(html) {
   const $ = cheerio.load(html || "");
@@ -36,7 +35,7 @@ async function getDeepSummary(text, headline) {
   ARTICLE: ${slicedText}`;
 
   const providers = [
-    { id: 'Gemini', active: !!geminiClient },
+    { id: 'Gemini', active: !!GEMINI_API_KEY },
     { id: 'Groq', active: !!GROQ_API_KEY },
     { id: 'Cloudflare', active: !!CF_API_TOKEN && !!CF_ACCOUNT_ID }
   ];
@@ -47,16 +46,41 @@ async function getDeepSummary(text, headline) {
     try {
       let output = null;
 
+      // 1. GEMINI (Auto-Discovery Mode)
       if (p.id === 'Gemini') {
-        // 🚀 SURGICAL FIX: Using the official SDK instead of raw web URLs
-        const response = await geminiClient.models.generateContent({
-          model: 'gemini-1.5-flash',
-          contents: prompt,
-          config: { maxOutputTokens: 1000, temperature: 0.3 }
-        });
-        output = response.text;
+        // 🚀 SURGICAL FIX: Ask Google what model this API key is allowed to use
+        if (!autoGeminiModel) {
+          console.log("🔍 Auto-detecting allowed Gemini model for your API key...");
+          const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`;
+          const listRes = await axios.get(listUrl, { timeout: 15000 });
+          
+          // Find models that support text generation
+          const validModels = listRes.data.models.filter(m => 
+            m.supportedGenerationMethods?.includes("generateContent") && 
+            m.name.includes("gemini")
+          );
+
+          if (validModels.length > 0) {
+            // Prefer 1.5 flash if allowed, otherwise pick whatever Google gives us
+            const preferred = validModels.find(m => m.name.includes("1.5-flash")) || validModels[0];
+            autoGeminiModel = preferred.name; // usually looks like "models/gemini-pro" or "models/gemini-1.5-flash"
+            console.log(`✅ Google authorized model found: ${autoGeminiModel}`);
+          } else {
+            throw new Error("No text-generation models allowed for this API key.");
+          }
+        }
+
+        // Use the newly discovered model!
+        const url = `https://generativelanguage.googleapis.com/v1beta/${autoGeminiModel}:generateContent?key=${GEMINI_API_KEY}`;
+        const res = await axios.post(url, {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
+        }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+        
+        output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
       }
       
+      // 2. GROQ
       else if (p.id === 'Groq') {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
           model: "llama-3.1-8b-instant",
@@ -66,6 +90,7 @@ async function getDeepSummary(text, headline) {
         output = res.data.choices?.[0]?.message?.content;
       }
 
+      // 3. CLOUDFLARE
       else if (p.id === 'Cloudflare') {
         const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
         const res = await axios.post(url, { prompt, max_tokens: 1000 }, {
@@ -90,7 +115,7 @@ async function getDeepSummary(text, headline) {
 }
 
 async function runSummarizer() {
-  console.log("🤖 Starting Bulletproof Tri-Model Pipeline (SDK Edition)...");
+  console.log("🤖 Starting Bulletproof Tri-Model Pipeline (Auto-Discovery Edition)...");
   
   if (!GEMINI_API_KEY) console.log("⚠️ WARNING: GEMINI_API_KEY is missing or empty!");
 
