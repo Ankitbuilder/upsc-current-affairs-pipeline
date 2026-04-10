@@ -9,12 +9,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataDir = path.join(__dirname, "../data");
 
+// 🚀 Pulling in all API Keys, including the new OpenRouter key!
 const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID?.trim();
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN?.trim();
 const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
-
-let autoGeminiModel = null;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim();
 
 function stripHtml(html) {
   const $ = cheerio.load(html || "");
@@ -40,66 +40,26 @@ async function getDeepSummary(text, headline, providers) {
       let output = null;
 
       // ==========================================
-      // 1. GEMINI (Lite-First Auto-Discovery)
+      // 1. OPENROUTER (The New Workhorse)
       // ==========================================
-      // ==========================================
-      // 1. GEMINI (Lite-First Auto-Discovery + Cooldown Loop)
-      // ==========================================
-      if (p.id === 'Gemini') {
-        if (!autoGeminiModel) {
-          console.log("🔍 Scanning Google India endpoints for best high-volume model...");
-          const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`;
-          const listRes = await axios.get(listUrl, { timeout: 15000 });
-          
-          const validModels = listRes.data.models.filter(m => 
-            m.supportedGenerationMethods?.includes("generateContent") && 
-            m.name.includes("gemini")
-          );
-
-          if (validModels.length > 0) {
-            // 🚀 SMART ROUTING: Look for "flash-lite" first to bypass 503 traffic!
-            const preferred = validModels.find(m => m.name.includes("flash-lite")) || 
-                              validModels.find(m => m.name.includes("flash")) || 
-                              validModels[0];
-            
-            autoGeminiModel = preferred.name; 
-            console.log(`✅ Google Model Locked: ${autoGeminiModel}`);
-          } else {
-            throw new Error("No allowed Gemini models found.");
-          }
-        }
-
-        const url = `https://generativelanguage.googleapis.com/v1beta/${autoGeminiModel}:generateContent?key=${GEMINI_API_KEY}`;
-        
-        // 🚀 THE PATIENCE LOOP: Handle 503s (Traffic) and 429s (RPM limit) gracefully
-        let attempts = 3;
-        while (attempts > 0) {
-          try {
-            const res = await axios.post(url, {
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
-            }, { headers: { 'Content-Type': 'application/json' }, timeout: 35000 });
-            
-            output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
-            break; // Success! Break retry loop.
-            
-          } catch (error) {
-            const statusCode = error.response?.status;
-            
-            // 🚀 THE FIX: If Gemini hits the Per-Minute limit (429) or Traffic Jam (503), WAIT 30 seconds!
-            if ((statusCode === 503 || statusCode === 429) && attempts > 1) {
-              console.log(`   ⏳ Gemini busy/rate-limited (${statusCode}). Cooldown for 65 seconds...`);
-              await new Promise(r => setTimeout(r, 65000));
-              attempts--;
-            } else {
-              throw error; // Throw to the main catch block if out of attempts
-            }
-          }
-        }
+      if (p.id === 'OpenRouter') {
+        const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+          // Using a fast, free Llama 3 model on OpenRouter
+          model: "meta-llama/llama-3-8b-instruct:free", 
+          messages: [{ role: "user", content: prompt }],
+        }, { 
+          headers: { 
+            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+            "HTTP-Referer": "https://github.com/ankitbuilder/upsc-current-affairs-pipeline", 
+            "X-Title": "UPSC Pipeline" 
+          }, 
+          timeout: 35000 
+        });
+        output = res.data.choices?.[0]?.message?.content;
       }
-      
+
       // ==========================================
-      // 2. GROQ
+      // 2. GROQ (The Fast Fallback)
       // ==========================================
       else if (p.id === 'Groq') {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -111,7 +71,7 @@ async function getDeepSummary(text, headline, providers) {
       }
 
       // ==========================================
-      // 3. CLOUDFLARE
+      // 3. CLOUDFLARE (The Reliable Backup)
       // ==========================================
       else if (p.id === 'Cloudflare') {
         const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
@@ -119,6 +79,38 @@ async function getDeepSummary(text, headline, providers) {
           headers: { Authorization: `Bearer ${CF_API_TOKEN}` }, timeout: 40000
         });
         output = res.data.result?.response;
+      }
+
+      // ==========================================
+      // 4. GEMINI NATIVE (The Last Resort)
+      // ==========================================
+      else if (p.id === 'Gemini') {
+        // Direct to the lightweight model to save API calls
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${GEMINI_API_KEY}`;
+        
+        let attempts = 3;
+        while (attempts > 0) {
+          try {
+            const res = await axios.post(url, {
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
+            }, { headers: { 'Content-Type': 'application/json' }, timeout: 35000 });
+            
+            output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+            break; 
+            
+          } catch (error) {
+            const statusCode = error.response?.status;
+            // 🚀 The 65-second safety net is still here just in case!
+            if ((statusCode === 503 || statusCode === 429) && attempts > 1) {
+              console.log(`   ⏳ Gemini rate-limited (${statusCode}). Hard reset for 65 seconds...`);
+              await new Promise(r => setTimeout(r, 65000));
+              attempts--;
+            } else {
+              throw error; 
+            }
+          }
+        }
       }
 
       if (output && output.length > 200) {
@@ -131,8 +123,8 @@ async function getDeepSummary(text, headline, providers) {
       const detail = e.response?.data?.error?.message || e.message;
       console.warn(`⚠️ ${p.id} failed (${status})`);
       
-      // 🚀 QUOTA MEMORY: If Groq or CF hit their absolute daily limit, turn them off for today!
-      if (status === 429 && detail.includes("tokens per day")) {
+      // Memory: Deactivate models if they hit their absolute daily limit
+      if (status === 429 && detail?.includes("tokens per day")) {
         console.log(`🛑 ${p.id} daily quota exhausted. Deactivating for remainder of this run.`);
         p.active = false;
       }
@@ -143,12 +135,14 @@ async function getDeepSummary(text, headline, providers) {
 }
 
 async function runSummarizer() {
-  console.log("🤖 Starting Ultimate Tri-Model Pipeline (India/GitHub Edition)...");
+  console.log("🤖 Starting Ultimate Quad-Model Pipeline (OpenRouter Edition)...");
   
+  // 🚀 Order dictates priority! OpenRouter is first, Gemini is last.
   const providers = [
-    { id: 'Gemini', active: !!GEMINI_API_KEY },
+    { id: 'OpenRouter', active: !!OPENROUTER_API_KEY },
     { id: 'Groq', active: !!GROQ_API_KEY },
-    { id: 'Cloudflare', active: !!CF_API_TOKEN && !!CF_ACCOUNT_ID }
+    { id: 'Cloudflare', active: !!CF_API_TOKEN && !!CF_ACCOUNT_ID },
+    { id: 'Gemini', active: !!GEMINI_API_KEY }
   ];
 
   const startTime = Date.now();
@@ -206,9 +200,8 @@ async function runSummarizer() {
           }
         }
 
-        // Pacing delay
         if (!haltPipeline) {
-          await new Promise(r => setTimeout(r, 6000));
+          await new Promise(r => setTimeout(r, 6000)); // Pacing
         }
       }
     }
@@ -220,7 +213,7 @@ async function runSummarizer() {
   }
   
   if (haltPipeline) {
-    console.log("💤 Pipeline paused safely. GitHub Action will now commit and upload data.");
+    console.log("💤 Pipeline paused safely. GitHub Action will commit and upload data.");
   } else {
     console.log("🎉 All historical files completely summarized!");
   }
