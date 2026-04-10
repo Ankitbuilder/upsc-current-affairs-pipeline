@@ -46,38 +46,51 @@ async function getDeepSummary(text, headline) {
     try {
       let output = null;
 
-      // 1. GEMINI (Auto-Discovery Mode)
+      // 1. GEMINI (Auto-Discovery + 503 Patience Loop)
       if (p.id === 'Gemini') {
-        // 🚀 SURGICAL FIX: Ask Google what model this API key is allowed to use
         if (!autoGeminiModel) {
           console.log("🔍 Auto-detecting allowed Gemini model for your API key...");
           const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`;
           const listRes = await axios.get(listUrl, { timeout: 15000 });
           
-          // Find models that support text generation
           const validModels = listRes.data.models.filter(m => 
             m.supportedGenerationMethods?.includes("generateContent") && 
             m.name.includes("gemini")
           );
 
           if (validModels.length > 0) {
-            // Prefer 1.5 flash if allowed, otherwise pick whatever Google gives us
-            const preferred = validModels.find(m => m.name.includes("1.5-flash")) || validModels[0];
-            autoGeminiModel = preferred.name; // usually looks like "models/gemini-pro" or "models/gemini-1.5-flash"
+            // We trust the auto-discovery. Pick the first valid text model it finds.
+            autoGeminiModel = validModels[0].name; 
             console.log(`✅ Google authorized model found: ${autoGeminiModel}`);
           } else {
             throw new Error("No text-generation models allowed for this API key.");
           }
         }
 
-        // Use the newly discovered model!
         const url = `https://generativelanguage.googleapis.com/v1beta/${autoGeminiModel}:generateContent?key=${GEMINI_API_KEY}`;
-        const res = await axios.post(url, {
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
-        }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
         
-        output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+        // 🚀 THE FIX: Try up to 3 times if we hit a 503 traffic jam
+        let attempts = 3;
+        while (attempts > 0) {
+          try {
+            const res = await axios.post(url, {
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
+            }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+            
+            output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+            break; // Success! Break out of the retry loop.
+            
+          } catch (error) {
+            if (error.response?.status === 503 && attempts > 1) {
+              console.log("⏳ Gemini servers are busy (503). Waiting 15 seconds to try again...");
+              await new Promise(r => setTimeout(r, 15000));
+              attempts--;
+            } else {
+              throw error; // If it's not a 503, or we ran out of attempts, throw it to the fallback
+            }
+          }
+        }
       }
       
       // 2. GROQ
