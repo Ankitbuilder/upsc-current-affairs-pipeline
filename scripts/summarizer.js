@@ -48,13 +48,15 @@ async function getDeepSummary(text, headline) {
 
       // 1. GEMINI (15 RPM Free Tier)
       if (p.id === 'Gemini') {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        // 🚀 SURGICAL FIX: Added "-latest" to the model name to fix the 404 Not Found error
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
         const res = await axios.post(url, {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
         }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
         output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
       }
+        
       
       // 2. GROQ (30k TPM Free Tier)
       else if (p.id === 'Groq') {
