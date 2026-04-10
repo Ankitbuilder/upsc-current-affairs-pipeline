@@ -9,7 +9,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataDir = path.join(__dirname, "../data");
 
-// 🚀 Pulling in all API Keys, including the new OpenRouter key!
 const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID?.trim();
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN?.trim();
 const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
@@ -40,12 +39,12 @@ async function getDeepSummary(text, headline, providers) {
       let output = null;
 
       // ==========================================
-      // 1. OPENROUTER (The New Workhorse)
+      // 1. OPENROUTER (The Llama 3.1 Workhorse)
       // ==========================================
       if (p.id === 'OpenRouter') {
         const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-          // Using a fast, free Llama 3 model on OpenRouter
-          model: "meta-llama/llama-3-8b-instruct:free", 
+          // 🚀 FIX 1: Updated to the active Llama 3.1 model
+          model: "meta-llama/llama-3.1-8b-instruct:free", 
           messages: [{ role: "user", content: prompt }],
         }, { 
           headers: { 
@@ -85,8 +84,8 @@ async function getDeepSummary(text, headline, providers) {
       // 4. GEMINI NATIVE (The Last Resort)
       // ==========================================
       else if (p.id === 'Gemini') {
-        // Direct to the lightweight model to save API calls
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${GEMINI_API_KEY}`;
+        // 🚀 FIX 2: Reverted to the exact 2.0 model your project is authorized for
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-001:generateContent?key=${GEMINI_API_KEY}`;
         
         let attempts = 3;
         while (attempts > 0) {
@@ -101,7 +100,6 @@ async function getDeepSummary(text, headline, providers) {
             
           } catch (error) {
             const statusCode = error.response?.status;
-            // 🚀 The 65-second safety net is still here just in case!
             if ((statusCode === 503 || statusCode === 429) && attempts > 1) {
               console.log(`   ⏳ Gemini rate-limited (${statusCode}). Hard reset for 65 seconds...`);
               await new Promise(r => setTimeout(r, 65000));
@@ -123,7 +121,6 @@ async function getDeepSummary(text, headline, providers) {
       const detail = e.response?.data?.error?.message || e.message;
       console.warn(`⚠️ ${p.id} failed (${status})`);
       
-      // Memory: Deactivate models if they hit their absolute daily limit
       if (status === 429 && detail?.includes("tokens per day")) {
         console.log(`🛑 ${p.id} daily quota exhausted. Deactivating for remainder of this run.`);
         p.active = false;
@@ -135,9 +132,8 @@ async function getDeepSummary(text, headline, providers) {
 }
 
 async function runSummarizer() {
-  console.log("🤖 Starting Ultimate Quad-Model Pipeline (OpenRouter Edition)...");
+  console.log("🤖 Starting Ultimate Quad-Model Pipeline (OpenRouter Llama 3.1 Edition)...");
   
-  // 🚀 Order dictates priority! OpenRouter is first, Gemini is last.
   const providers = [
     { id: 'OpenRouter', active: !!OPENROUTER_API_KEY },
     { id: 'Groq', active: !!GROQ_API_KEY },
@@ -201,7 +197,7 @@ async function runSummarizer() {
         }
 
         if (!haltPipeline) {
-          await new Promise(r => setTimeout(r, 6000)); // Pacing
+          await new Promise(r => setTimeout(r, 6000));
         }
       }
     }
