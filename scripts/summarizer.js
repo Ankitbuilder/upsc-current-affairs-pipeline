@@ -44,7 +44,7 @@ async function getDeepSummary(text, headline, providers) {
       if (p.id === 'OpenRouter') {
         const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
           // 🚀 FIX 1: Updated to the active Llama 3.1 model
-          model: "mistralai/mistral-7b-instruct:free", 
+          model: "openrouter/free", 
           messages: [{ role: "user", content: prompt }],
         }, { 
           headers: { 
