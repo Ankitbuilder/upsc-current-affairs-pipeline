@@ -101,8 +101,8 @@ async function getDeepSummary(text, headline, providers) {
           } catch (error) {
             const statusCode = error.response?.status;
             if ((statusCode === 503 || statusCode === 429) && attempts > 1) {
-              console.log(`   ⏳ Gemini rate-limited (${statusCode}). Hard reset for 65 seconds...`);
-              await new Promise(r => setTimeout(r, 65000));
+              console.log(`   ⏳ Gemini rate-limited (${statusCode}). Hard reset for 30 seconds...`);
+              await new Promise(r => setTimeout(r, 30000));
               attempts--;
             } else {
               throw error; 
