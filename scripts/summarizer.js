@@ -88,8 +88,8 @@ async function getDeepSummary(text, headline, providers) {
             
             // 🚀 THE FIX: If Gemini hits the Per-Minute limit (429) or Traffic Jam (503), WAIT 30 seconds!
             if ((statusCode === 503 || statusCode === 429) && attempts > 1) {
-              console.log(`   ⏳ Gemini busy/rate-limited (${statusCode}). Cooldown for 30 seconds...`);
-              await new Promise(r => setTimeout(r, 30000));
+              console.log(`   ⏳ Gemini busy/rate-limited (${statusCode}). Cooldown for 65 seconds...`);
+              await new Promise(r => setTimeout(r, 65000));
               attempts--;
             } else {
               throw error; // Throw to the main catch block if out of attempts
