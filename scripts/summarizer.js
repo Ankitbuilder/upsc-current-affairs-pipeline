@@ -44,9 +44,10 @@ async function getDeepSummary(text, headline) {
     try {
       let output = null;
 
+      // 1. GEMINI (15 RPM Free Tier)
       if (p.id === 'Gemini') {
-        // 🚀 THE FIX: Changed 'gemini-1.5-flash' to 'gemini-1.5-flash-latest'
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        // 🚀 SURGICAL FIX: Switched to 'gemini-1.0-pro' which is globally unlocked for all API keys
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key=${GEMINI_API_KEY}`;
         const res = await axios.post(url, {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
