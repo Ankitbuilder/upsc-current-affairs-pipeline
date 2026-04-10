@@ -39,12 +39,12 @@ async function getDeepSummary(text, headline, providers) {
       let output = null;
 
       // ==========================================
-      // 1. OPENROUTER (The Llama 3.1 Workhorse)
+      // 1. OPENROUTER 
       // ==========================================
       if (p.id === 'OpenRouter') {
         const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
           // 🚀 FIX 1: Updated to the active Llama 3.1 model
-          model: "meta-llama/llama-3.1-8b-instruct:free", 
+          model: "mistralai/mistral-7b-instruct:free", 
           messages: [{ role: "user", content: prompt }],
         }, { 
           headers: { 
