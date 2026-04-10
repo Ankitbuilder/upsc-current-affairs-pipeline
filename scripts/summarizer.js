@@ -45,8 +45,8 @@ async function getDeepSummary(text, headline) {
       let output = null;
 
       if (p.id === 'Gemini') {
-        // Back to the standard, most stable model endpoint
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        // 🚀 THE FIX: Changed 'gemini-1.5-flash' to 'gemini-1.5-flash-latest'
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
         const res = await axios.post(url, {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
