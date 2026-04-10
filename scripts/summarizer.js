@@ -4,16 +4,19 @@ import path from "path";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { fileURLToPath } from "url";
+import { GoogleGenAI } from "@google/genai"; // 🚀 Official SDK added
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataDir = path.join(__dirname, "../data");
 
-// 🚀 SURGICAL FIX: Added .trim() to destroy invisible spaces/newlines from GitHub Secrets
 const CF_ACCOUNT_ID = process.env.R2_ACCOUNT_ID?.trim();
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN?.trim();
 const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
+
+// 🚀 Initialize official Google AI client
+const geminiClient = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 function stripHtml(html) {
   const $ = cheerio.load(html || "");
@@ -33,7 +36,7 @@ async function getDeepSummary(text, headline) {
   ARTICLE: ${slicedText}`;
 
   const providers = [
-    { id: 'Gemini', active: !!GEMINI_API_KEY },
+    { id: 'Gemini', active: !!geminiClient },
     { id: 'Groq', active: !!GROQ_API_KEY },
     { id: 'Cloudflare', active: !!CF_API_TOKEN && !!CF_ACCOUNT_ID }
   ];
@@ -44,15 +47,14 @@ async function getDeepSummary(text, headline) {
     try {
       let output = null;
 
-      // 1. GEMINI (15 RPM Free Tier)
       if (p.id === 'Gemini') {
-        // 🚀 SURGICAL FIX: Switched to 'gemini-1.0-pro' which is globally unlocked for all API keys
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key=${GEMINI_API_KEY}`;
-        const res = await axios.post(url, {
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
-        }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
-        output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
+        // 🚀 SURGICAL FIX: Using the official SDK instead of raw web URLs
+        const response = await geminiClient.models.generateContent({
+          model: 'gemini-1.5-flash',
+          contents: prompt,
+          config: { maxOutputTokens: 1000, temperature: 0.3 }
+        });
+        output = response.text;
       }
       
       else if (p.id === 'Groq') {
@@ -78,8 +80,7 @@ async function getDeepSummary(text, headline) {
       }
 
     } catch (e) {
-      // 🚀 SURGICAL FIX: Print the EXACT error message from the provider
-      const status = e.response?.status || 'Timeout';
+      const status = e.response?.status || e.status || 'Error';
       const detail = e.response?.data?.error?.message || e.message;
       console.warn(`⚠️ ${p.id} failed (${status}): ${detail}`);
     }
@@ -89,9 +90,8 @@ async function getDeepSummary(text, headline) {
 }
 
 async function runSummarizer() {
-  console.log("🤖 Starting Bulletproof Tri-Model Pipeline...");
+  console.log("🤖 Starting Bulletproof Tri-Model Pipeline (SDK Edition)...");
   
-  // Quick check to ensure Gemini Key is loaded
   if (!GEMINI_API_KEY) console.log("⚠️ WARNING: GEMINI_API_KEY is missing or empty!");
 
   const startTime = Date.now();
@@ -110,7 +110,6 @@ async function runSummarizer() {
     let modified = false;
 
     for (let item of data) {
-      
       if (Date.now() - startTime > MAX_RUNTIME) {
         console.log("⏳ 5.5 Hour limit reached mid-file. Initiating graceful shutdown...");
         haltPipeline = true;
