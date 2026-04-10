@@ -23,7 +23,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install axios cheerio dotenv
+        run: npm install axios cheerio dotenv @google/genai
 
       - name: Run Fetch Pipeline
         run: node scripts/index.js
