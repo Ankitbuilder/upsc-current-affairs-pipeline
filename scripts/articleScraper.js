@@ -38,7 +38,7 @@ async function fetchWithRetry(url, retries = 3) {
 }
 
 /* ============================================================
-   PIB SCRAPER: ENTERPRISE FINAL (V11)
+   PIB SCRAPER
 ============================================================ */
 export async function scrapeFullArticle(url) {
   try {
@@ -56,30 +56,38 @@ export async function scrapeFullArticle(url) {
 
     // 2️⃣ ADVANCED TARGET DETECTION (Side-bar proof)
     let target = null;
-    const primarySelectors = ["#ReleaseText", ".innner-page-main-about-us-content-right-part", ".release-details-full"];
+    
+    // Corrected target selectors: added ".ReleaseText", ".ReleaseTextTxt", and table bodies
+    const primarySelectors = [
+      ".ReleaseText", 
+      ".ReleaseTextTxt", 
+      "#ReleaseText", 
+      ".innner-page-main-about-us-content-right-part", 
+      ".release-details-full"
+    ];
     
     for (const s of primarySelectors) {
-      if ($(s).length > 0) { target = $(s); break; }
+      if ($(s).length > 0) { 
+        target = $(s); 
+        break; 
+      }
     }
 
     if (!target) {
       console.log("ℹ Calculating Text Density (Ignoring Sidebars)...");
       let maxScore = 0;
       
-      // We look inside potential content blocks but ignore known navigation/footer tags
-      $("article, main, div").not("nav, footer, header, aside, .sidebar, .menu").each((_, el) => {
+      // Added "td" to target blocks to account for PIB table structures
+      $("article, main, div, td").not("nav, footer, header, aside, .sidebar, .menu").each((_, el) => {
         const $el = $(el);
         
-        // --- The Link Ratio Protection ---
         const linksCount = $el.find("a").length;
-        const pAndLiCount = $el.find("p, li").length;
+        // Added "td" alongside p/li count
+        const pAndLiCount = $el.find("p, li, td").length;
         const totalTextLen = $el.text().length;
 
-        // SIDEBAR DETECTION LOGIC: 
-        // If the number of links is higher than paragraphs/bullets, it's likely a menu.
         if (linksCount > pAndLiCount) return; 
 
-        // Score based on text volume and paragraph frequency
         const currentScore = (pAndLiCount * 10) + (totalTextLen / 100);
         
         if (currentScore > maxScore) {
@@ -94,13 +102,15 @@ export async function scrapeFullArticle(url) {
     let images = [];
 
     // 3️⃣ SHIELDED CONTENT EXTRACTION
-    finalTarget.find("p, li, div").each((_, el) => {
+    // Added "td" and "span" support so text trapped in table structures isn't skipped
+    finalTarget.find("p, li, div, td, span").each((_, el) => {
       const $el = $(el);
-      // Logic: Only capture terminal elements (no child block tags)
-      if ($el.children("p, li, div").length === 0) {
+      
+      // Ensure we don't look at parent containers if they have text-holding children
+      if ($el.children("p, li, div, td, span").length === 0) {
         const text = cleanText($el.text());
         if (
-          text.length > 25 && 
+          text.length > 15 && // Lowered threshold from 25 to 15 to capture shorter sentences
           !text.startsWith("Posted On:") && 
           !text.includes("PIB Delhi") && 
           !text.toLowerCase().includes("follow us")
@@ -120,7 +130,16 @@ export async function scrapeFullArticle(url) {
     const uniqueContent = [...new Set(contentBlocks)].join("\n\n");
     const uniqueImages = [...new Set(images)];
 
-    if (uniqueContent.length < 150) {
+    // Fallback block: if structural processing yielded too little text, try raw target text
+    let finalContent = uniqueContent;
+    if (finalContent.length < 150) {
+      const rawText = cleanText(finalTarget.text());
+      if (rawText.length > 150) {
+         finalContent = rawText;
+      }
+    }
+
+    if (finalContent.length < 150) {
       console.log(`❌ Skipped: Threshold not met [${url}]`);
       return null;
     }
@@ -128,14 +147,14 @@ export async function scrapeFullArticle(url) {
     // 5️⃣ OUTPUT & LOGGING
     let confidence = 0;
     if (headline.length > 25) confidence += 25;
-    if (uniqueContent.length > 500) confidence += 50;
+    if (finalContent.length > 500) confidence += 50;
     if (uniqueImages.length > 0) confidence += 25;
 
     console.log(`✅ Success: ${headline.substring(0, 45)}... [Score: ${confidence}/100]`);
 
     return {
       headline,
-      content: uniqueContent,
+      content: finalContent,
       images: uniqueImages,
       meta: {
         confidenceScore: confidence,
