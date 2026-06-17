@@ -19,14 +19,29 @@ function cleanText(text) {
 }
 
 /* ============================================================
-   UTILITY: NETWORK RESILIENCE
+   UTILITY: NETWORK RESILIENCE WITH DYNAMIC REFERER
 ============================================================ */
 async function fetchWithRetry(url, retries = 3) {
   let attempt = 0;
+  
+  // Dynamically set the Referer to the parent page if fetching the iframe page
+  let referer = "https://www.pib.gov.in/";
+  if (url.includes("PressReleaseIframePage.aspx")) {
+    const prIDMatch = url.match(/PRID=(\d+)/);
+    if (prIDMatch) {
+      referer = `https://www.pib.gov.in/PressReleasePage.aspx?PRID=${prIDMatch[1]}`;
+    }
+  }
+
   while (attempt < retries) {
     try {
       return await axios.get(url, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Referer": "https://www.pib.gov.in/" },
+        headers: { 
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", 
+          "Referer": referer,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.5"
+        },
         timeout: 25000 
       });
     } catch (err) {
@@ -46,6 +61,12 @@ export async function scrapeFullArticle(url) {
     const html = response.data;
     if (!html || html.length < 500) return null;
 
+    // Detect if PIB returned their standard "Page not available" soft-error HTML
+    if (html.includes("Page you have requested is not available") || html.includes("Sorry for your Inconvenience")) {
+      console.log(`⚠️ Skipped: PIB soft-error page returned [${url}]`);
+      return null;
+    }
+
     const $ = cheerio.load(html);
 
     // 1️⃣ HEADLINE
@@ -54,10 +75,14 @@ export async function scrapeFullArticle(url) {
       $("meta[property='og:title']").attr("content") || $("title").text().split("|")[0]
     );
 
+    // If the headline is "Untitled Page" or similar generic terms, reject it
+    if (!headline || headline.toLowerCase() === "untitled page" || headline.toLowerCase() === "pib") {
+      console.log(`⚠️ Skipped: Invalid or empty headline [${url}]`);
+      return null;
+    }
+
     // 2️⃣ ADVANCED TARGET DETECTION (Side-bar proof)
     let target = null;
-    
-    // Corrected target selectors: added ".ReleaseText", ".ReleaseTextTxt", and table bodies
     const primarySelectors = [
       ".ReleaseText", 
       ".ReleaseTextTxt", 
@@ -77,12 +102,9 @@ export async function scrapeFullArticle(url) {
       console.log("ℹ Calculating Text Density (Ignoring Sidebars)...");
       let maxScore = 0;
       
-      // Added "td" to target blocks to account for PIB table structures
       $("article, main, div, td").not("nav, footer, header, aside, .sidebar, .menu").each((_, el) => {
         const $el = $(el);
-        
         const linksCount = $el.find("a").length;
-        // Added "td" alongside p/li count
         const pAndLiCount = $el.find("p, li, td").length;
         const totalTextLen = $el.text().length;
 
@@ -102,15 +124,12 @@ export async function scrapeFullArticle(url) {
     let images = [];
 
     // 3️⃣ SHIELDED CONTENT EXTRACTION
-    // Added "td" and "span" support so text trapped in table structures isn't skipped
     finalTarget.find("p, li, div, td, span").each((_, el) => {
       const $el = $(el);
-      
-      // Ensure we don't look at parent containers if they have text-holding children
       if ($el.children("p, li, div, td, span").length === 0) {
         const text = cleanText($el.text());
         if (
-          text.length > 15 && // Lowered threshold from 25 to 15 to capture shorter sentences
+          text.length > 15 && 
           !text.startsWith("Posted On:") && 
           !text.includes("PIB Delhi") && 
           !text.toLowerCase().includes("follow us")
@@ -130,7 +149,6 @@ export async function scrapeFullArticle(url) {
     const uniqueContent = [...new Set(contentBlocks)].join("\n\n");
     const uniqueImages = [...new Set(images)];
 
-    // Fallback block: if structural processing yielded too little text, try raw target text
     let finalContent = uniqueContent;
     if (finalContent.length < 150) {
       const rawText = cleanText(finalTarget.text());
@@ -139,8 +157,13 @@ export async function scrapeFullArticle(url) {
       }
     }
 
-    if (finalContent.length < 150) {
-      console.log(`❌ Skipped: Threshold not met [${url}]`);
+    // Double check that the final content does not contain the error message
+    if (
+      finalContent.length < 150 || 
+      finalContent.includes("Page you have requested is not available") || 
+      finalContent.includes("Sorry for your Inconvenience")
+    ) {
+      console.log(`❌ Skipped: Threshold not met or error text found [${url}]`);
       return null;
     }
 
