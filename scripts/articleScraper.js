@@ -4,7 +4,7 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 
 /* ============================================================
-   UTILITY: CLEANERS, FILTERS & SANITIZERS
+   UTILITY: CLEANERS & FILTERS
 ============================================================ */
 function normalizeImageUrl(src) {
   if (!src) return null;
@@ -18,67 +18,54 @@ function cleanText(text) {
   return text.replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function getRandomUserAgent() {
-  const uas = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0"
-  ];
-  return uas[Math.floor(Math.random() * uas.length)];
-}
-
 /* ============================================================
-   ULTIMATE PROXY FETCH ENGINE (GitHub Actions Cloud Bypass)
+   REGION BRUTE-FORCE ENGINE (The Ultimate Bypass)
 ============================================================ */
-async function fetchWithProxies(targetUrl) {
-  const userAgent = getRandomUserAgent();
+// 3=Delhi, 48=PMO, 47=President, 50=Vice President, 4=Mumbai, 8=Chennai, 1=Kolkata, 17=Bengaluru
+const COMMON_REGIONS = [3, 48, 47, 50, 4, 1, 8, 17, 11, 5, 6]; 
 
-  // List of the strongest free proxies that bypass WAFs
-  const proxyList = [
-    { name: "CorsProxy.io", url: `https://corsproxy.io/?${encodeURIComponent(targetUrl)}` },
-    { name: "AllOrigins (Raw)", url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}` },
-    { name: "CodeTabs", url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}` }
-  ];
+async function fetchWithRegionBruteForce(prid) {
+  console.log(`🔗 Searching database for correct region... [PRID: ${prid}]`);
 
-  for (const proxy of proxyList) {
+  for (const reg of COMMON_REGIONS) {
+    const testUrl = `https://pib.gov.in/PressReleaseIframePage.aspx?PRID=${prid}&reg=${reg}&lang=1`;
+    
     try {
-      console.log(`   🌐 Fetching via ${proxy.name}...`);
-      const response = await axios.get(proxy.url, {
+      const response = await axios.get(testUrl, {
         headers: { 
-          "User-Agent": userAgent,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36", 
+          "Referer": "https://pib.gov.in/",
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
         },
-        timeout: 15000 // 15 seconds strict timeout
+        timeout: 8000 // Short 8s timeout per region test
       });
 
       const html = response.data;
 
-      // Ensure we got valid HTML and NOT a PIB soft-error
+      // If the HTML does NOT contain the soft error, we found the right region!
       if (
         html && 
         html.length > 500 && 
         !html.includes("Page you have requested is not available") && 
         !html.includes("Sorry for your Inconvenience")
       ) {
-        console.log(`   ✅ Success via ${proxy.name}!`);
-        return html;
-      } else {
-        console.log(`   ⚠️ ${proxy.name} returned soft-error. Trying next...`);
+        console.log(`   ✅ Match Found! Article belongs to Region: ${reg}`);
+        return { html, url: testUrl };
       }
     } catch (err) {
-      console.log(`   ⚠️ ${proxy.name} failed: ${err.message}`);
+      // Silently ignore network timeouts and try the next region
     }
   }
 
-  return null; // All proxies failed
+  return null; // PRID not found in any common region
 }
 
 /* ============================================================
-   PIB SCRAPER (TWO-STEP SELF-HEALING)
+   PIB SCRAPER
 ============================================================ */
 export async function scrapeFullArticle(url) {
   try {
+    // 1️⃣ Extract PRID from the incoming RSS URL
     const prIDMatch = url.match(/PRID=(\d+)/);
     if (!prIDMatch) {
       console.log(`⚠️ Skipped: No PRID found in URL [${url}]`);
@@ -86,43 +73,19 @@ export async function scrapeFullArticle(url) {
     }
     const prid = prIDMatch[1];
 
-    // 1️⃣ Fetch the Main Page to extract the correct dynamic region/lang iframe
-    const mainPageUrl = `https://pib.gov.in/PressReleasePage.aspx?PRID=${prid}`;
-    console.log(`🔗 Resolving parameters for PRID: ${prid}`);
+    // 2️⃣ Brute Force the Region to bypass the PIB database error
+    const result = await fetchWithRegionBruteForce(prid);
     
-    let mainPageHtml = await fetchWithProxies(mainPageUrl);
-    
-    if (!mainPageHtml) {
-      console.log(`❌ Skipped: Could not load main page for PRID ${prid}`);
+    if (!result) {
+      console.log(`❌ Skipped: Could not resolve valid region for PRID ${prid}.`);
       return null;
     }
 
-    const $main = cheerio.load(mainPageHtml);
-
-    // 2️⃣ Extract the correct embedded iframe URL
-    let iframeSrc = null;
-    $main("iframe").each((_, el) => {
-      const src = $main(el).attr("src");
-      if (src && src.includes("PressReleaseIframePage.aspx")) {
-        iframeSrc = src;
-      }
-    });
-
-    if (!iframeSrc) {
-      console.log(`⚠️ Skipped: Could not find iframe inside main page for PRID ${prid}`);
-      return null;
-    }
-
-    const correctIframeUrl = new URL(iframeSrc, "https://pib.gov.in").toString();
-    console.log(`🎯 Found true article URL: ${correctIframeUrl}`);
-
-    // 3️⃣ Fetch the actual iframe article content
-    const html = await fetchWithProxies(correctIframeUrl);
-    if (!html || html.length < 500) return null;
-
+    const html = result.html;
+    const finalUrl = result.url;
     const $ = cheerio.load(html);
 
-    // 4️⃣ HEADLINE EXTRACTION
+    // 3️⃣ HEADLINE EXTRACTION
     const headline = cleanText(
       $("h2").first().text() || $("h1").first().text() || $(".ReleaseTitleTxt").text() || 
       $("meta[property='og:title']").attr("content") || $("title").text().split("|")[0]
@@ -133,7 +96,7 @@ export async function scrapeFullArticle(url) {
       return null;
     }
 
-    // 5️⃣ CONTENT BLOCK SELECTION
+    // 4️⃣ CONTENT BLOCK SELECTION
     let target = null;
     const primarySelectors = [
       ".ReleaseText", 
@@ -172,7 +135,7 @@ export async function scrapeFullArticle(url) {
     let contentBlocks = [];
     let images = [];
 
-    // 6️⃣ SHIELDED TEXT HARVESTING
+    // 5️⃣ SHIELDED TEXT HARVESTING
     finalTarget.find("p, li, div, td, span").each((_, el) => {
       const $el = $(el);
       if ($el.children("p, li, div, td, span").length === 0) {
@@ -188,7 +151,7 @@ export async function scrapeFullArticle(url) {
       }
     });
 
-    // 7️⃣ IMAGE HARVESTING
+    // 6️⃣ IMAGE HARVESTING
     finalTarget.find("img").each((_, el) => {
       const src = $(el).attr("src") || $(el).attr("data-src");
       const validUrl = normalizeImageUrl(src);
@@ -215,7 +178,7 @@ export async function scrapeFullArticle(url) {
       return null;
     }
 
-    // 8️⃣ SUCCESS OUTPUT
+    // 7️⃣ SUCCESS OUTPUT
     let confidence = 0;
     if (headline.length > 25) confidence += 25;
     if (finalContent.length > 500) confidence += 50;
