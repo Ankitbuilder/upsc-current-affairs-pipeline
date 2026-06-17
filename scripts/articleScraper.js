@@ -6,24 +6,6 @@ import * as cheerio from "cheerio";
 /* ============================================================
    UTILITY: CLEANERS, FILTERS & SANITIZERS
 ============================================================ */
-function sanitizePibUrl(url) {
-  if (!url) return url;
-  try {
-    const u = new URL(url);
-    // Strip the "reg" and "regid" query parameters completely.
-    // This forces PIB's database to query globally by PRID, avoiding region-mismatch errors.
-    u.searchParams.delete("reg");
-    u.searchParams.delete("regid");
-    
-    // Force bare domain for better routing compatibility
-    u.hostname = "pib.gov.in"; 
-    
-    return u.toString();
-  } catch (e) {
-    return url;
-  }
-}
-
 function normalizeImageUrl(src) {
   if (!src) return null;
   const fullUrl = src.startsWith("http") ? src : "https://pib.gov.in" + src;
@@ -37,7 +19,7 @@ function cleanText(text) {
 }
 
 /* ============================================================
-   MULTIPLE-PROXY FETCH ENGINE (ZERO-KEY, ANTI-HANG EDITION)
+   HYBRID FETCH ENGINE (With Free AllOrigins Proxy Fallback)
 ============================================================ */
 async function fetchWithRetry(url, retries = 2) {
   const prIDMatch = url.match(/PRID=(\d+)/);
@@ -79,11 +61,10 @@ async function fetchWithRetry(url, retries = 2) {
 
   // 2️⃣ Multi-Proxy Fallback Engine if direct fetch is blocked
   if (!html) {
-    console.log(`ℹ️ Direct fetch blocked. Attempting proxy fallback...`);
+    console.log(`   Direct fetch blocked. Attempting proxy fallback...`);
 
     // Proxy 1: CodeTabs (Fast, returns raw HTML directly. Strict 12s timeout)
     try {
-      console.log(`   Trying CodeTabs proxy...`);
       const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
       const response = await axios.get(proxyUrl, { timeout: 12000 });
       const tempHtml = response.data;
@@ -95,16 +76,15 @@ async function fetchWithRetry(url, retries = 2) {
         !tempHtml.includes("Sorry for your Inconvenience")
       ) {
         html = tempHtml;
-        console.log(`✅ Proxy bypass successful (via CodeTabs)!`);
+        console.log(`   ✅ Proxy bypass successful (via CodeTabs)!`);
       }
     } catch (err) {
-      console.warn(`   ⚠️ CodeTabs proxy failed or timed out: ${err.message}`);
+      // Fail silently and try next proxy
     }
 
     // Proxy 2: AllOrigins (Backup, returns JSON wrapper. 15s timeout)
     if (!html) {
       try {
-        console.log(`   Trying AllOrigins proxy...`);
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
         const response = await axios.get(proxyUrl, { timeout: 15000 });
         
@@ -121,10 +101,10 @@ async function fetchWithRetry(url, retries = 2) {
           !tempHtml.includes("Sorry for your Inconvenience")
         ) {
           html = tempHtml;
-          console.log(`✅ Proxy bypass successful (via AllOrigins)!`);
+          console.log(`   ✅ Proxy bypass successful (via AllOrigins)!`);
         }
       } catch (err) {
-        console.warn(`   ⚠️ AllOrigins proxy failed or timed out: ${err.message}`);
+        // All options failed
       }
     }
   }
@@ -137,30 +117,65 @@ async function fetchWithRetry(url, retries = 2) {
 }
 
 /* ============================================================
-   PIB SCRAPER
+   PIB SCRAPER (TWO-STEP SELF-HEALING ENGINE)
 ============================================================ */
 export async function scrapeFullArticle(url) {
   try {
-    const sanitizedUrl = sanitizePibUrl(url);
+    // Extract PRID to make sure we have a valid article identifier
+    const prIDMatch = url.match(/PRID=(\d+)/);
+    if (!prIDMatch) {
+      console.log(`⚠️ Skipped: No PRID found in URL [${url}]`);
+      return null;
+    }
+    const prid = prIDMatch[1];
 
-    const response = await fetchWithRetry(sanitizedUrl);
+    // 1️⃣ Convert the RSS link to the user-facing Page URL (which never fails due to regional mismatches)
+    const mainPageUrl = `https://archive.pib.gov.in/PressReleasePage.aspx?PRID=${prid}`;
+    
+    console.log(`🔗 Loading main page to extract correct parameters... [PRID: ${prid}]`);
+    const mainPageResponse = await fetchWithRetry(mainPageUrl);
+    const mainPageHtml = mainPageResponse.data;
+    if (!mainPageHtml) return null;
+
+    const $main = cheerio.load(mainPageHtml);
+
+    // 2️⃣ Find the dynamically generated iframe tag inside the main page and extract the correct URL
+    let iframeSrc = null;
+    $main("iframe").each((_, el) => {
+      const src = $main(el).attr("src");
+      if (src && src.includes("PressReleaseIframePage.aspx")) {
+        iframeSrc = src;
+      }
+    });
+
+    if (!iframeSrc) {
+      console.log(`⚠️ Skipped: Could not find embedded article iframe inside [${mainPageUrl}]`);
+      return null;
+    }
+
+    // Resolve the extracted correct iframe URL (it will automatically contain the correct reg and lang)
+    const correctIframeUrl = new URL(iframeSrc, "https://archive.pib.gov.in").toString();
+    console.log(`🎯 Successfully resolved working target: [${correctIframeUrl}]`);
+
+    // 3️⃣ Fetch the correct iframe URL to get the clean release content
+    const response = await fetchWithRetry(correctIframeUrl);
     const html = response.data;
     if (!html || html.length < 500) return null;
 
     const $ = cheerio.load(html);
 
-    // 1️⃣ HEADLINE
+    // 4️⃣ HEADLINE EXTRACTION
     const headline = cleanText(
       $("h2").first().text() || $("h1").first().text() || $(".ReleaseTitleTxt").text() || 
       $("meta[property='og:title']").attr("content") || $("title").text().split("|")[0]
     );
 
     if (!headline || headline.toLowerCase() === "untitled page" || headline.toLowerCase() === "pib") {
-      console.log(`⚠️ Skipped: Invalid or empty headline [${sanitizedUrl}]`);
+      console.log(`⚠️ Skipped: Invalid or empty headline [${correctIframeUrl}]`);
       return null;
     }
 
-    // 2️⃣ ADVANCED TARGET DETECTION
+    // 5️⃣ CONTENT BLOCK SELECTION
     let target = null;
     const primarySelectors = [
       ".ReleaseText", 
@@ -178,9 +193,7 @@ export async function scrapeFullArticle(url) {
     }
 
     if (!target) {
-      console.log("ℹ Calculating Text Density (Ignoring Sidebars)...");
       let maxScore = 0;
-      
       $("article, main, div, td").not("nav, footer, header, aside, .sidebar, .menu").each((_, el) => {
         const $el = $(el);
         const linksCount = $el.find("a").length;
@@ -202,7 +215,7 @@ export async function scrapeFullArticle(url) {
     let contentBlocks = [];
     let images = [];
 
-    // 3️⃣ SHIELDED CONTENT EXTRACTION
+    // 6️⃣ SHIELDED TEXT HARVESTING
     finalTarget.find("p, li, div, td, span").each((_, el) => {
       const $el = $(el);
       if ($el.children("p, li, div, td, span").length === 0) {
@@ -218,7 +231,7 @@ export async function scrapeFullArticle(url) {
       }
     });
 
-    // 4️⃣ IMAGE HARVESTING
+    // 7️⃣ IMAGE HARVESTING
     finalTarget.find("img").each((_, el) => {
       const src = $(el).attr("src") || $(el).attr("data-src");
       const validUrl = normalizeImageUrl(src);
@@ -241,11 +254,11 @@ export async function scrapeFullArticle(url) {
       finalContent.includes("Page you have requested is not available") || 
       finalContent.includes("Sorry for your Inconvenience")
     ) {
-      console.log(`❌ Skipped: Threshold not met or error text found [${sanitizedUrl}]`);
+      console.log(`❌ Skipped: Threshold not met or error text found [${correctIframeUrl}]`);
       return null;
     }
 
-    // 5️⃣ OUTPUT & LOGGING
+    // 8️⃣ SUCCESS OUTPUT
     let confidence = 0;
     if (headline.length > 25) confidence += 25;
     if (finalContent.length > 500) confidence += 50;
