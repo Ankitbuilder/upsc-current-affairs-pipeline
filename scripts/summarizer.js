@@ -24,13 +24,25 @@ async function getDeepSummary(text, headline, providers) {
   let cleanText = stripHtml(text);
   const words = cleanText.split(/\s+/).filter(w => w.length > 0);
   
+  // Use up to 1,000 words from the source article for context
   const slicedText = words.slice(0, 1000).join(" ");
-  const targetWords = Math.max(Math.floor(words.length / 3), 200);
 
-  const prompt = `Provide a DETAILED UPSC study note. 
-  Sections: 1. CONTEXT, 2. KEY FEATURES, 3. SIGNIFICANCE, 4. UPSC RELEVANCE.
-  LENGTH: ~${targetWords} words. 
-  ARTICLE: ${slicedText}`;
+  // Updated Prompt: Shifted from UPSC guide to an objective, fact-driven article summary
+  const prompt = `Analyze the following press release and write a factual, professional summary.
+
+Guidelines:
+- Base the summary STRICTLY on the provided text. Do not add external analysis, opinions, or speculation.
+- Avoid any conversational filler or opening/closing remarks (e.g., do not say "Here is the summary").
+- Structure the response under these exact Markdown headers:
+
+### OVERVIEW
+(A concise 1-2 sentence paragraph summarizing the core announcement or decision)
+
+### KEY HIGHLIGHTS
+(Bullet points capturing critical numbers, dates, targets, statistics, and specific details)
+
+ARTICLE:
+${slicedText}`;
 
   for (const p of providers) {
     if (!p.active) continue;
@@ -43,14 +55,13 @@ async function getDeepSummary(text, headline, providers) {
       // ==========================================
       if (p.id === 'OpenRouter') {
         const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-          // 🚀 FIX 1: Updated to the active Llama 3.1 model
           model: "openrouter/free", 
           messages: [{ role: "user", content: prompt }],
         }, { 
           headers: { 
             "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
             "HTTP-Referer": "https://github.com/ankitbuilder/upsc-current-affairs-pipeline", 
-            "X-Title": "UPSC Pipeline" 
+            "X-Title": "News Pipeline" 
           }, 
           timeout: 35000 
         });
@@ -58,7 +69,7 @@ async function getDeepSummary(text, headline, providers) {
       }
 
       // ==========================================
-      // 2. GROQ (The Fast Fallback)
+      // 2. GROQ 
       // ==========================================
       else if (p.id === 'Groq') {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -70,7 +81,7 @@ async function getDeepSummary(text, headline, providers) {
       }
 
       // ==========================================
-      // 3. CLOUDFLARE (The Reliable Backup)
+      // 3. CLOUDFLARE 
       // ==========================================
       else if (p.id === 'Cloudflare') {
         const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`;
@@ -81,10 +92,9 @@ async function getDeepSummary(text, headline, providers) {
       }
 
       // ==========================================
-      // 4. GEMINI NATIVE (The Last Resort)
+      // 4. GEMINI NATIVE 
       // ==========================================
       else if (p.id === 'Gemini') {
-        // 🚀 FIX 2: Reverted to the exact 2.0 model your project is authorized for
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-001:generateContent?key=${GEMINI_API_KEY}`;
         
         let attempts = 3;
@@ -92,7 +102,7 @@ async function getDeepSummary(text, headline, providers) {
           try {
             const res = await axios.post(url, {
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 1000, temperature: 0.3 }
+              generationConfig: { maxOutputTokens: 1000, temperature: 0.1 } // Reduced temperature for higher factual consistency
             }, { headers: { 'Content-Type': 'application/json' }, timeout: 35000 });
             
             output = res.data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -111,9 +121,10 @@ async function getDeepSummary(text, headline, providers) {
         }
       }
 
-      if (output && output.length > 200) {
+      if (output && output.length > 100) {
         console.log(`⚡ Success via ${p.id}`);
-        return output.replace(/^(Here is a summary|Here's a study note|.*summarizing:)/i, "").trim();
+        // Strip out any remaining generic LLM conversational openings if they slip through
+        return output.replace(/^(Here is a summary of the article:|Here is the professional summary:|Here is the summary:|Based on the press release provided, here is a summary:)/i, "").trim();
       }
 
     } catch (e) {
@@ -132,7 +143,7 @@ async function getDeepSummary(text, headline, providers) {
 }
 
 async function runSummarizer() {
-  console.log("🤖 Starting Ultimate Quad-Model Pipeline (OpenRouter Llama 3.1 Edition)...");
+  console.log("🤖 Starting Ultimate Quad-Model Pipeline (Professional News Edition)...");
   
   const providers = [
     { id: 'OpenRouter', active: !!OPENROUTER_API_KEY },
@@ -167,7 +178,7 @@ async function runSummarizer() {
       if (!item.fullText && item.summaryText) item.fullText = item.summaryText;
 
       const isPlaceholder = item.summaryText === item.fullText;
-      const isBroken = item.summaryText && (item.summaryText.includes("<p>") || item.summaryText.length < 350);
+      const isBroken = item.summaryText && (item.summaryText.includes("<p>") || item.summaryText.length < 150);
 
       if ((!item.summaryText || isPlaceholder || isBroken) && item.fullText) {
         
