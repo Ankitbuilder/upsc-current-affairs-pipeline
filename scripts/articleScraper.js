@@ -7,7 +7,7 @@ import * as cheerio from "cheerio";
 ============================================================ */
 function normalizeImageUrl(src) {
   if (!src) return null;
-  const fullUrl = src.startsWith("http") ? src : "https://www.pib.gov.in" + src;
+  const fullUrl = src.startsWith("http") ? src : "https://pib.gov.in" + src;
   const blacklist = ["logo", "azadika", "facebook", "twitter", "instagram", "youtube", "print", "share", "icon"];
   return blacklist.some(word => fullUrl.toLowerCase().includes(word)) ? null : fullUrl;
 }
@@ -26,7 +26,7 @@ function isValidHtml(html) {
 }
 
 /* ============================================================
-   LIGHTNING FETCH ENGINE (Static reg=48 + Fallbacks)
+   RESILIENT FETCH ENGINE (Bare Domain + Extended Timeouts)
 ============================================================ */
 async function fetchHtml(targetUrl) {
   const headers = { 
@@ -34,47 +34,40 @@ async function fetchHtml(targetUrl) {
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "en-US,en;q=0.9",
     "Cache-Control": "no-cache",
-    "Referer": "https://www.pib.gov.in/"
+    "Referer": "https://pib.gov.in/"
   };
 
-  // 1️⃣ Fast Direct Fetch (Mimics human browser)
-  try {
-    const res = await fetch(targetUrl, { headers, signal: AbortSignal.timeout(6000) });
-    const text = await res.text();
-    if (isValidHtml(text)) return text;
-  } catch (e) {} 
+  const strategies = [
+    { name: "Direct (Bare Domain)", url: targetUrl },
+    { name: "Direct (Archive)", url: targetUrl.replace("pib.gov.in", "archive.pib.gov.in") },
+    { name: "CorsProxy", url: `https://corsproxy.io/?${targetUrl}` },
+    { name: "CodeTabs", url: `https://api.codetabs.com/v1/proxy?quest=${targetUrl}` }
+  ];
 
-  // 2️⃣ Fast Direct Fetch via Archive Subdomain (Bypasses WAF)
-  try {
-    const archiveUrl = targetUrl.replace("www.pib.gov.in", "archive.pib.gov.in");
-    const res = await fetch(archiveUrl, { headers, signal: AbortSignal.timeout(6000) });
-    const text = await res.text();
-    if (isValidHtml(text)) return text;
-  } catch (e) {}
-
-  // 3️⃣ Reliable AllOrigins JSON Proxy (GitHub Actions fallback)
-  try {
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
-    const json = await res.json();
-    if (json.contents && isValidHtml(json.contents)) return json.contents;
-  } catch (e) {}
-
-  return null;
-}
-
-/* ============================================================
-   STATIC REGION FETCH (Locked to reg=48)
-============================================================ */
-async function getArticleHtml(prid) {
-  // 🚀 CRITICAL FIX: Statically locked to reg=48 exactly as requested
-  const url = `https://www.pib.gov.in/PressReleasePage.aspx?PRID=${prid}&reg=48&lang=1`;
-  const html = await fetchHtml(url);
-  
-  if (html) {
-    console.log(`   ✅ Valid URL matched: ${url}`);
-    return html;
+  for (const strat of strategies) {
+    try {
+      // 🚀 Increased to 12 seconds so slow PIB pages don't get skipped!
+      const res = await fetch(strat.url, { headers, signal: AbortSignal.timeout(12000) });
+      const text = await res.text();
+      if (isValidHtml(text)) {
+        console.log(`   ✅ Success via ${strat.name}`);
+        return text;
+      }
+    } catch (e) {
+      // Silently continue to next strategy on timeout/failure
+    }
   }
+
+  // Final Backup: AllOrigins JSON Wrapper (Highly reliable on GitHub Actions)
+  try {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`, { signal: AbortSignal.timeout(15000) });
+    const json = await res.json();
+    if (json.contents && isValidHtml(json.contents)) {
+      console.log(`   ✅ Success via AllOrigins`);
+      return json.contents;
+    }
+  } catch(e) {}
+
   return null;
 }
 
@@ -87,12 +80,14 @@ export async function scrapeFullArticle(url) {
     if (!prIDMatch) return null;
     const prid = prIDMatch[1];
 
-    console.log(`🔗 Fetching PRID: ${prid} with static reg=48...`);
+    // 🚀 Using your discovery: Bare domain + Universal reg=48 Master Key
+    const masterUrl = `https://pib.gov.in/PressReleasePage.aspx?PRID=${prid}&reg=48&lang=1`;
+    console.log(`🔗 Fetching PRID: ${prid} (Using reg=48 master key)...`);
     
-    const html = await getArticleHtml(prid);
+    const html = await fetchHtml(masterUrl);
 
     if (!html) {
-      console.log(`❌ Skipped: Could not load main page for PRID ${prid} (Region 48 mismatch or WAF block)`);
+      console.log(`❌ Skipped: Network timeout or WAF blocked all proxy attempts for PRID ${prid}`);
       return null;
     }
 
@@ -103,7 +98,6 @@ export async function scrapeFullArticle(url) {
     if (!headline || headline.toLowerCase() === "untitled page" || headline.toLowerCase() === "pib") return null;
 
     // 2️⃣ CONTENT TARGETING
-    // Extracting strictly from the main content block, ignoring sidebars and footers
     let target = null;
     const primarySelectors = [".ReleaseText", ".ReleaseTextTxt", "#ReleaseText", ".release-details-full"];
     
@@ -131,7 +125,6 @@ export async function scrapeFullArticle(url) {
     // 3️⃣ TEXT HARVESTING
     finalTarget.find("p, li, div, td, span").each((_, el) => {
       const $el = $(el);
-      // Ensure we only grab terminal text elements (no nested blocks)
       if ($el.children("p, li, div, td, span").length === 0) {
         const text = cleanText($el.text());
         if (text.length > 15 && !text.startsWith("Posted On:") && !text.toLowerCase().includes("follow us")) {
@@ -147,7 +140,10 @@ export async function scrapeFullArticle(url) {
     });
 
     const uniqueContent = [...new Set(contentBlocks)].join("\n\n");
-    if (uniqueContent.length < 150) return null;
+    if (uniqueContent.length < 150) {
+      console.log(`❌ Skipped: Extracted text too short (likely parsed error page).`);
+      return null;
+    }
 
     console.log(`✅ Scraped successfully: ${headline.substring(0, 45)}...`);
 
