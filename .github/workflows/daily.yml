@@ -23,8 +23,14 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        # 🚀 REMOVED @google/genai to speed up your install time
-        run: npm install axios cheerio dotenv
+        # Running "npm install" is safer to ensure all dependencies in package.json are resolved
+        run: npm install
+
+      # 🆕 Separated into its own step to prevent YAML parser errors
+      - name: Run Reset Script
+        run: node scripts/forceRetry.js
+        env:
+          TZ: "Asia/Kolkata"
 
       - name: Run Fetch Pipeline
         run: node scripts/index.js
@@ -34,7 +40,6 @@ jobs:
       - name: Run Bulletproof Summarizer
         run: node scripts/summarizer.js
         env:
-          # 🚀 ADDED your new OpenRouter key right here
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -52,10 +57,11 @@ jobs:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
 
       - name: Commit generated data
+        # Use pull --rebase to gracefully merge changes and avoid divert conflicts during push
         run: |
-          git config --global user.name github-actions
-          git config --global user.email github-actions@github.com
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/*
-          git pull origin main
-          git commit -m "Steady progress via Quad-Model AI Pipeline" || echo "No changes"
-          git push
+          git commit -m "Steady progress via Quad-Model AI Pipeline" || echo "No changes to commit"
+          git pull --rebase origin main
+          git push origin HEAD:main
