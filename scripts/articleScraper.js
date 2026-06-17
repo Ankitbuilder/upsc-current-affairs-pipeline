@@ -1,6 +1,7 @@
 // scripts/articleScraper.js
 
 import * as cheerio from "cheerio";
+import { extractMinistry } from "./testMinistry.js";
 
 /* ============================================================
    UTILITY: CLEANERS & FILTERS
@@ -184,27 +185,14 @@ export async function scrapeFullArticle(url) {
       return null;
     }
 
-    /* ========================================================
-       MINISTRY
-    ======================================================== */
+const ministryResult = extractMinistry($);
 
-    let ministry = "";
+const ministry =
+  ministryResult?.ministry?.trim() || "";
 
-    const ministryText = cleanText(
-      $("h2")
-        .first()
-        .prevAll()
-        .first()
-        .text()
-    );
-
-    if (
-      ministryText &&
-      ministryText.length < 120 &&
-      !ministryText.includes("Posted On")
-    ) {
-      ministry = ministryText;
-    }
+console.log(
+  `🏛 Ministry: ${ministry || "NOT FOUND"}`
+);
 
     /* ========================================================
        CONTENT TARGETING
