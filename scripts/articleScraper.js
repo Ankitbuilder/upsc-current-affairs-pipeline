@@ -19,12 +19,18 @@ function cleanText(text) {
 }
 
 /* ============================================================
-   UTILITY: NETWORK RESILIENCE WITH DYNAMIC REFERER
+   UTILITY: NETWORK RESILIENCE (With ScraperAPI proxy routing)
 ============================================================ */
 async function fetchWithRetry(url, retries = 3) {
   let attempt = 0;
+  const scraperApiKey = process.env.SCRAPERAPI_KEY?.trim();
   
-  // Dynamically set the Referer to the parent page if fetching the iframe page
+  // If ScraperAPI key is configured, route the request through it to bypass Akamai Bot Manager
+  let fetchUrl = url;
+  if (scraperApiKey) {
+    fetchUrl = `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
+  }
+
   let referer = "https://www.pib.gov.in/";
   if (url.includes("PressReleaseIframePage.aspx")) {
     const prIDMatch = url.match(/PRID=(\d+)/);
@@ -35,7 +41,7 @@ async function fetchWithRetry(url, retries = 3) {
 
   while (attempt < retries) {
     try {
-      return await axios.get(url, {
+      return await axios.get(fetchUrl, {
         headers: { 
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", 
           "Referer": referer,
@@ -75,7 +81,7 @@ export async function scrapeFullArticle(url) {
       $("meta[property='og:title']").attr("content") || $("title").text().split("|")[0]
     );
 
-    // If the headline is "Untitled Page" or similar generic terms, reject it
+    // If the headline is generic, reject it
     if (!headline || headline.toLowerCase() === "untitled page" || headline.toLowerCase() === "pib") {
       console.log(`⚠️ Skipped: Invalid or empty headline [${url}]`);
       return null;
