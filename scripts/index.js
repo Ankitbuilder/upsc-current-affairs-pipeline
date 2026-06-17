@@ -1,6 +1,6 @@
 // scripts/index.js
 
-process.env.TZ = "Asia/Kolkata"; // ✅ Ensure IST date always
+process.env.TZ = "Asia/Kolkata";
 
 import fs from "fs";
 import path from "path";
@@ -9,7 +9,6 @@ import { fileURLToPath } from "url";
 import { fetchRSSArticles } from "./rssFetcher.js";
 import { scrapeFullArticle } from "./articleScraper.js";
 import { detectCategory } from "./categoryDetector.js";
-import { extractMinistryFromUrl } from "./testMinistry.js";
 
 import {
   loadProcessedLinks,
@@ -20,36 +19,56 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 🚀 Reliable Official PIB Logo as Default Image Fallback
-const DEFAULT_PIB_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg";
+const DEFAULT_PIB_IMAGE =
+  "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg";
 
 async function runPipeline() {
   try {
-    console.log("🚀 PIB Official Feed Pipeline Started...");
+    console.log(
+      "🚀 PIB Official Feed Pipeline Started..."
+    );
 
-    const dataDir = path.join(__dirname, "../data");
+    const dataDir = path.join(
+      __dirname,
+      "../data"
+    );
+
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir);
     }
 
-    // ✅ Use IST date (NOT UTC)
-    const today = new Date().toLocaleDateString("en-CA");
+    const today =
+      new Date().toLocaleDateString(
+        "en-CA"
+      );
+
     console.log("📅 Today:", today);
 
-    // ===============================
-    // 1️⃣ FETCH PIB RSS
-    // ===============================
-    const rssArticles = await fetchRSSArticles();
-    console.log("📰 Total RSS Articles:", rssArticles.length);
+    // ==================================
+    // FETCH RSS
+    // ==================================
 
-    // ===============================
-    // 2️⃣ DEDUPLICATE USING PRID
-    // ===============================
+    const rssArticles =
+      await fetchRSSArticles();
+
+    console.log(
+      "📰 Total RSS Articles:",
+      rssArticles.length
+    );
+
+    // ==================================
+    // DEDUP USING PRID
+    // ==================================
+
     const seenPRIDs = new Set();
     const uniqueArticles = [];
 
     for (const article of rssArticles) {
-      const match = article.link?.match(/PRID=(\d+)/);
+      const match =
+        article.link?.match(
+          /PRID=(\d+)/
+        );
+
       if (!match) continue;
 
       const prid = match[1];
@@ -60,180 +79,384 @@ async function runPipeline() {
       }
     }
 
-    console.log("🔁 Unique PIB Articles:", uniqueArticles.length);
+    console.log(
+      "🔁 Unique PIB Articles:",
+      uniqueArticles.length
+    );
 
-    // ===============================
-    // 2.5️⃣ SORT BY PIB PUBLISH TIME (DESC)
-    // ===============================
+    // ==================================
+    // SORT BY DATE
+    // ==================================
+
     uniqueArticles.sort((a, b) => {
-      const dateA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
-      const dateB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+      const dateA = a.pubDate
+        ? new Date(
+            a.pubDate
+          ).getTime()
+        : 0;
+
+      const dateB = b.pubDate
+        ? new Date(
+            b.pubDate
+          ).getTime()
+        : 0;
+
       return dateB - dateA;
     });
 
-    console.log("⏳ Articles sorted by publish time.");
+    console.log(
+      "⏳ Articles sorted by publish time."
+    );
 
-    // ===============================
-    // 3️⃣ LOAD PROCESSED LINKS
-    // ===============================
-    const processedSet = loadProcessedLinks();
+    // ==================================
+    // LOAD STATE
+    // ==================================
 
-    // ===============================
-    // 4️⃣ SCRAPE ALL NEW ARTICLES
-    // ===============================
+    const processedSet =
+      loadProcessedLinks();
+
+    // ==================================
+    // SCRAPE ARTICLES
+    // ==================================
+
     const finalOutput = [];
 
     for (const article of uniqueArticles) {
-      if (processedSet.has(article.link)) {
+      if (
+        processedSet.has(article.link)
+      ) {
         continue;
       }
 
-      const scraped = await scrapeFullArticle(article.link);
+      const scraped =
+        await scrapeFullArticle(
+          article.link
+        );
 
-      if (!scraped || !scraped.content || scraped.content.length < 50) {
-        console.log("⚠ Skipped:", article.title);
+      if (
+        !scraped ||
+        !scraped.content ||
+        scraped.content.length < 50
+      ) {
+        console.log(
+          "⚠ Skipped:",
+          article.title
+        );
         continue;
       }
 
-      const cleanedHTML = `<p>${scraped.content.replace(/\n+/g, "</p><p>")}</p>`;
+      const cleanedHTML =
+        `<p>${scraped.content.replace(
+          /\n+/g,
+          "</p><p>"
+        )}</p>`;
 
-      const fallbackCategory = detectCategory({
-          headline: scraped.headline,
-          fullText: scraped.content
-      });
+      // ==================================
+      // CATEGORY
+      // ==================================
 
-      let finalCategory = fallbackCategory;
+      const fallbackCategory =
+        detectCategory({
+          headline:
+            scraped.headline,
+          fullText:
+            scraped.content
+        });
 
-      try {
-          const { ministry } = await extractMinistryFromUrl(article.link);
+      const finalCategory =
+        scraped.ministry?.trim()
+          ? scraped.ministry.trim()
+          : fallbackCategory;
 
-          if (ministry && ministry.trim()) {
-            finalCategory = ministry.trim();
-          }
-      } catch (error) {
-          console.log("⚠ Ministry detection failed, using fallback category:", error.message);
-      }
+      // ==================================
+      // MASTER URL
+      // ==================================
 
-      // 🚀 MASTER URL FORMATTER: Strip broken RSS links and force reg=48 universal link
-      const rawPridMatch = article.link.match(/PRID=(\d+)/);
-      const savedPrid = rawPridMatch ? rawPridMatch[1] : "";
-      const masterSavedUrl = savedPrid 
-          ? `https://pib.gov.in/PressReleasePage.aspx?PRID=${savedPrid}&reg=48&lang=1` 
+      const rawPridMatch =
+        article.link.match(
+          /PRID=(\d+)/
+        );
+
+      const savedPrid =
+        rawPridMatch
+          ? rawPridMatch[1]
+          : "";
+
+      const masterSavedUrl =
+        savedPrid
+          ? `https://pib.gov.in/PressReleasePage.aspx?PRID=${savedPrid}&reg=48&lang=1`
           : article.link;
 
-      // 🚀 DEFAULT IMAGE FALLBACK
-      const primaryImage = scraped.images?.[0] || DEFAULT_PIB_IMAGE;
-      const allImages = scraped.images?.length > 0 ? scraped.images : [DEFAULT_PIB_IMAGE];
+      // ==================================
+      // IMAGES
+      // ==================================
+
+      const primaryImage =
+        scraped.images?.[0] ||
+        DEFAULT_PIB_IMAGE;
+
+      const allImages =
+        scraped.images?.length > 0
+          ? scraped.images
+          : [DEFAULT_PIB_IMAGE];
 
       finalOutput.push({
-        headline: scraped.headline || article.title,
+        headline:
+          scraped.headline ||
+          article.title,
+
         fullText: cleanedHTML,
-        summaryText: cleanedHTML,
-        category: finalCategory,
-        imageUrl: primaryImage,
-        imageUrls: allImages,
-        articleUrl: masterSavedUrl 
+
+        summaryText:
+          cleanedHTML,
+
+        category:
+          finalCategory,
+
+        imageUrl:
+          primaryImage,
+
+        imageUrls:
+          allImages,
+
+        articleUrl:
+          masterSavedUrl
       });
 
-      markAsProcessed(processedSet, article.link);
+      markAsProcessed(
+        processedSet,
+        article.link
+      );
 
-      console.log("✅ Scraped:", article.title);
+      console.log(
+        "✅ Scraped:",
+        article.title
+      );
     }
 
-    saveProcessedLinks(processedSet);
+    saveProcessedLinks(
+      processedSet
+    );
 
-    console.log("📝 Successfully Scraped:", finalOutput.length);
+    console.log(
+      "📝 Successfully Scraped:",
+      finalOutput.length
+    );
 
-    // ===============================
-    // 5️⃣ SAVE TODAY JSON (APPEND MODE)
-    // ===============================
-    const todayPath = path.join(dataDir, `${today}.json`);
+    // ==================================
+    // SAVE TODAY JSON
+    // ==================================
+
+    const todayPath =
+      path.join(
+        dataDir,
+        `${today}.json`
+      );
 
     let existingData = [];
 
-    if (fs.existsSync(todayPath)) {
+    if (
+      fs.existsSync(todayPath)
+    ) {
       try {
-        existingData = JSON.parse(fs.readFileSync(todayPath));
-        
-        // 🚀 HOTFIX OLD DATA: Automatically upgrade old entries in today's file to use reg=48 & Default Image
-        existingData = existingData.map(item => {
-          const m = item.articleUrl?.match(/PRID=(\d+)/);
-          if (m) {
-            item.articleUrl = `https://pib.gov.in/PressReleasePage.aspx?PRID=${m[1]}&reg=48&lang=1`;
-          }
-          if (!item.imageUrl) item.imageUrl = DEFAULT_PIB_IMAGE;
-          if (!item.imageUrls || item.imageUrls.length === 0) item.imageUrls = [DEFAULT_PIB_IMAGE];
-          return item;
-        });
+        existingData =
+          JSON.parse(
+            fs.readFileSync(
+              todayPath
+            )
+          );
 
-      } catch (err) {
-        console.log("⚠ Error reading existing file. Creating fresh.");
+        existingData =
+          existingData.map(
+            item => {
+              const m =
+                item.articleUrl?.match(
+                  /PRID=(\d+)/
+                );
+
+              if (m) {
+                item.articleUrl =
+                  `https://pib.gov.in/PressReleasePage.aspx?PRID=${m[1]}&reg=48&lang=1`;
+              }
+
+              if (
+                !item.imageUrl
+              ) {
+                item.imageUrl =
+                  DEFAULT_PIB_IMAGE;
+              }
+
+              if (
+                !item.imageUrls ||
+                item.imageUrls
+                  .length === 0
+              ) {
+                item.imageUrls =
+                  [
+                    DEFAULT_PIB_IMAGE
+                  ];
+              }
+
+              return item;
+            }
+          );
+      } catch {
         existingData = [];
       }
     }
 
-    // Merge old + new
-    const combinedData = [...existingData, ...finalOutput];
+    const combinedData = [
+      ...existingData,
+      ...finalOutput
+    ];
 
-    // Remove duplicates safely using articleUrl
-    const uniqueMap = new Map();
+    const uniqueMap =
+      new Map();
+
     for (const item of combinedData) {
-      uniqueMap.set(item.articleUrl, item);
+      uniqueMap.set(
+        item.articleUrl,
+        item
+      );
     }
 
-    const finalMerged = Array.from(uniqueMap.values());
-    const newContent = JSON.stringify(finalMerged, null, 2);
+    const finalMerged =
+      Array.from(
+        uniqueMap.values()
+      );
 
-    let shouldWriteToday = true;
+    const newContent =
+      JSON.stringify(
+        finalMerged,
+        null,
+        2
+      );
 
-    if (fs.existsSync(todayPath)) {
-      const currentContent = fs.readFileSync(todayPath, "utf8");
-      if (currentContent === newContent) {
-        shouldWriteToday = false;
-        console.log("⏭ No change in today's JSON.");
+    let shouldWriteToday =
+      true;
+
+    if (
+      fs.existsSync(todayPath)
+    ) {
+      const currentContent =
+        fs.readFileSync(
+          todayPath,
+          "utf8"
+        );
+
+      if (
+        currentContent ===
+        newContent
+      ) {
+        shouldWriteToday =
+          false;
+
+        console.log(
+          "⏭ No change in today's JSON."
+        );
       }
     }
 
     if (shouldWriteToday) {
-      fs.writeFileSync(todayPath, newContent);
-      console.log("✅ Today's JSON updated with Master URLs and Default Images.");
+      fs.writeFileSync(
+        todayPath,
+        newContent
+      );
+
+      console.log(
+        "✅ Today's JSON updated with Master URLs and Default Images."
+      );
     }
 
-    // ===============================
-    // 6️⃣ UPDATE dates.json
-    // ===============================
-    const datesPath = path.join(dataDir, "dates.json");
-    let existingDates = [];
+    // ==================================
+    // DATES.JSON
+    // ==================================
 
-    if (fs.existsSync(datesPath)) {
-        existingDates = JSON.parse(fs.readFileSync(datesPath));
+    const datesPath =
+      path.join(
+        dataDir,
+        "dates.json"
+      );
+
+    let existingDates =
+      [];
+
+    if (
+      fs.existsSync(datesPath)
+    ) {
+      existingDates =
+        JSON.parse(
+          fs.readFileSync(
+            datesPath
+          )
+        );
     }
 
-    if (!existingDates.includes(today)) {
-      existingDates.unshift(today);
+    if (
+      !existingDates.includes(
+        today
+      )
+    ) {
+      existingDates.unshift(
+        today
+      );
     }
 
-    const newDatesContent = JSON.stringify(existingDates, null, 2);
-    let shouldWriteDates = true;
+    const newDatesContent =
+      JSON.stringify(
+        existingDates,
+        null,
+        2
+      );
 
-    if (fs.existsSync(datesPath)) {
-      const currentDatesContent = fs.readFileSync(datesPath, "utf8");
-      if (currentDatesContent === newDatesContent) {
-        shouldWriteDates = false;
-        console.log("⏭ No change in dates.json.");
+    let shouldWriteDates =
+      true;
+
+    if (
+      fs.existsSync(datesPath)
+    ) {
+      const currentDatesContent =
+        fs.readFileSync(
+          datesPath,
+          "utf8"
+        );
+
+      if (
+        currentDatesContent ===
+        newDatesContent
+      ) {
+        shouldWriteDates =
+          false;
+
+        console.log(
+          "⏭ No change in dates.json."
+        );
       }
     }
 
-    if (shouldWriteDates) {
-        fs.writeFileSync(datesPath, newDatesContent);
-        console.log("✅ dates.json updated.");
+    if (
+      shouldWriteDates
+    ) {
+      fs.writeFileSync(
+        datesPath,
+        newDatesContent
+      );
+
+      console.log(
+        "✅ dates.json updated."
+      );
     }
 
-    console.log("🎉 Fetching Pipeline completed successfully.");
-
+    console.log(
+      "🎉 Fetching Pipeline completed successfully."
+    );
   } catch (error) {
-    console.error("❌ Pipeline failed:");
+    console.error(
+      "❌ Pipeline failed:"
+    );
+
     console.error(error);
+
     process.exit(1);
   }
 }
