@@ -10,7 +10,7 @@ function sanitizePibUrl(url) {
   if (!url) return url;
   try {
     const u = new URL(url);
-    // 🚀 CRITICAL FIX: Strip the "reg" and "regid" query parameters completely.
+    // Strip the "reg" and "regid" query parameters completely.
     // This forces PIB's database to query globally by PRID, avoiding region-mismatch errors.
     u.searchParams.delete("reg");
     u.searchParams.delete("regid");
@@ -37,7 +37,7 @@ function cleanText(text) {
 }
 
 /* ============================================================
-   HYBRID FETCH ENGINE (With Free AllOrigins Proxy Fallback)
+   MULTIPLE-PROXY FETCH ENGINE (ZERO-KEY, ANTI-HANG EDITION)
 ============================================================ */
 async function fetchWithRetry(url, retries = 2) {
   const prIDMatch = url.match(/PRID=(\d+)/);
@@ -47,7 +47,7 @@ async function fetchWithRetry(url, retries = 2) {
   let attempt = 0;
   let html = null;
 
-  // 1️⃣ Attempt Direct Fetch First
+  // 1️⃣ Attempt Direct Fetch First (With short 10s timeout)
   while (attempt < retries) {
     try {
       const response = await axios.get(url, {
@@ -58,7 +58,7 @@ async function fetchWithRetry(url, retries = 2) {
           "Accept-Language": "en-US,en;q=0.5",
           "Cache-Control": "no-cache"
         },
-        timeout: 15000 
+        timeout: 10000 
       });
 
       const tempHtml = response.data;
@@ -72,24 +72,22 @@ async function fetchWithRetry(url, retries = 2) {
         break; // Direct fetch succeeded!
       }
     } catch (err) {
-      // Fail silently and try proxy fallback
+      // Fail silently and move on to retry or proxy fallback
     }
     attempt++;
   }
 
-  // 2️⃣ Attempt Free Public Proxy Fallback if direct fetch was blocked/failed
+  // 2️⃣ Multi-Proxy Fallback Engine if direct fetch is blocked
   if (!html) {
-    console.log(`ℹ️ Direct fetch blocked. Attempting to bypass Akamai via public proxy... [${url}]`);
-    try {
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-      const response = await axios.get(proxyUrl, { timeout: 25000 });
-      
-      let proxyData = response.data;
-      if (typeof proxyData === "string") {
-        proxyData = JSON.parse(proxyData);
-      }
+    console.log(`ℹ️ Direct fetch blocked. Attempting proxy fallback...`);
 
-      const tempHtml = proxyData?.contents;
+    // Proxy 1: CodeTabs (Fast, returns raw HTML directly. Strict 12s timeout)
+    try {
+      console.log(`   Trying CodeTabs proxy...`);
+      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+      const response = await axios.get(proxyUrl, { timeout: 12000 });
+      const tempHtml = response.data;
+      
       if (
         tempHtml && 
         tempHtml.length > 500 && 
@@ -97,10 +95,37 @@ async function fetchWithRetry(url, retries = 2) {
         !tempHtml.includes("Sorry for your Inconvenience")
       ) {
         html = tempHtml;
-        console.log(`✅ Proxy bypass successful!`);
+        console.log(`✅ Proxy bypass successful (via CodeTabs)!`);
       }
-    } catch (proxyError) {
-      console.error(`⚠️ Proxy bypass attempt failed:`, proxyError.message);
+    } catch (err) {
+      console.warn(`   ⚠️ CodeTabs proxy failed or timed out: ${err.message}`);
+    }
+
+    // Proxy 2: AllOrigins (Backup, returns JSON wrapper. 15s timeout)
+    if (!html) {
+      try {
+        console.log(`   Trying AllOrigins proxy...`);
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        const response = await axios.get(proxyUrl, { timeout: 15000 });
+        
+        let proxyData = response.data;
+        if (typeof proxyData === "string") {
+          proxyData = JSON.parse(proxyData);
+        }
+
+        const tempHtml = proxyData?.contents;
+        if (
+          tempHtml && 
+          tempHtml.length > 500 && 
+          !tempHtml.includes("Page you have requested is not available") && 
+          !tempHtml.includes("Sorry for your Inconvenience")
+        ) {
+          html = tempHtml;
+          console.log(`✅ Proxy bypass successful (via AllOrigins)!`);
+        }
+      } catch (err) {
+        console.warn(`   ⚠️ AllOrigins proxy failed or timed out: ${err.message}`);
+      }
     }
   }
 
@@ -116,7 +141,6 @@ async function fetchWithRetry(url, retries = 2) {
 ============================================================ */
 export async function scrapeFullArticle(url) {
   try {
-    // 🚀 Sanitize the URL before requesting to strip out the restrictive region parameters
     const sanitizedUrl = sanitizePibUrl(url);
 
     const response = await fetchWithRetry(sanitizedUrl);
