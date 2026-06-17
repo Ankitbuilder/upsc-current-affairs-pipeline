@@ -15,32 +15,39 @@ export async function fetchRSSArticles() {
       feed.items.forEach(item => {
         const link = item.link || "";
 
-        // 🔥 Normalize PIB link
         const pridMatch = link.match(/PRID=(\d+)/);
 
         let normalizedLink = link;
 
+        // 🚀 Always convert to universal reg=48 URL
         if (pridMatch) {
           const prid = pridMatch[1];
+
           normalizedLink =
-            `https://www.pib.gov.in/PressReleaseIframePage.aspx?PRID=${prid}&reg=3&lang=1`;
+            `https://pib.gov.in/PressReleasePage.aspx?PRID=${prid}&reg=48&lang=1`;
         }
 
         allArticles.push({
           title: item.title || "",
           link: normalizedLink,
-          content: "", // Always scrape full
-          imageUrl: null
+          content: "",
+          imageUrl: null,
+          pubDate: item.pubDate || null
         });
       });
 
       console.log(`✅ Fetched RSS from ${url}`);
+
     } catch (error) {
       console.log(`⚠ Failed RSS: ${url}`);
+      console.log(`   ${error.message}`);
     }
   }
 
-  console.log("📰 Total PIB Articles:", allArticles.length);
+  console.log(
+    "📰 Total PIB Articles:",
+    allArticles.length
+  );
 
   return allArticles;
 }
