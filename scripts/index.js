@@ -20,6 +20,9 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// 🚀 Reliable Official PIB Logo as Default Image Fallback
+const DEFAULT_PIB_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg";
+
 async function runPipeline() {
   try {
     console.log("🚀 PIB Official Feed Pipeline Started...");
@@ -92,9 +95,7 @@ async function runPipeline() {
         continue;
       }
 
-      const cleanedHTML = `<p>${scraped.content
-      .replace(/\n+/g, "</p><p>")
-      }</p>`;
+      const cleanedHTML = `<p>${scraped.content.replace(/\n+/g, "</p><p>")}</p>`;
 
       const fallbackCategory = detectCategory({
           headline: scraped.headline,
@@ -109,23 +110,29 @@ async function runPipeline() {
           if (ministry && ministry.trim()) {
             finalCategory = ministry.trim();
           }
-        } catch (error) {
-        console.log("⚠ Ministry detection failed, using fallback category:", error.message);
-          }
+      } catch (error) {
+          console.log("⚠ Ministry detection failed, using fallback category:", error.message);
+      }
 
-        finalOutput.push({
+      // 🚀 MASTER URL FORMATTER: Strip broken RSS links and force reg=48 universal link
+      const rawPridMatch = article.link.match(/PRID=(\d+)/);
+      const savedPrid = rawPridMatch ? rawPridMatch[1] : "";
+      const masterSavedUrl = savedPrid 
+          ? `https://pib.gov.in/PressReleasePage.aspx?PRID=${savedPrid}&reg=48&lang=1` 
+          : article.link;
+
+      // 🚀 DEFAULT IMAGE FALLBACK
+      const primaryImage = scraped.images?.[0] || DEFAULT_PIB_IMAGE;
+      const allImages = scraped.images?.length > 0 ? scraped.images : [DEFAULT_PIB_IMAGE];
+
+      finalOutput.push({
         headline: scraped.headline || article.title,
-          
         fullText: cleanedHTML,
-          
         summaryText: cleanedHTML,
-
         category: finalCategory,
-
-        imageUrl: scraped.images?.[0] || null,
-        imageUrls: scraped.images || [],
-
-        articleUrl: article.link
+        imageUrl: primaryImage,
+        imageUrls: allImages,
+        articleUrl: masterSavedUrl 
       });
 
       markAsProcessed(processedSet, article.link);
@@ -137,73 +144,81 @@ async function runPipeline() {
 
     console.log("📝 Successfully Scraped:", finalOutput.length);
 
-    let dataChanged = false;
     // ===============================
-   // 5️⃣ SAVE TODAY JSON (APPEND MODE)
-  // ===============================
-  const todayPath = path.join(dataDir, `${today}.json`);
+    // 5️⃣ SAVE TODAY JSON (APPEND MODE)
+    // ===============================
+    const todayPath = path.join(dataDir, `${today}.json`);
 
-  let existingData = [];
+    let existingData = [];
 
-  if (fs.existsSync(todayPath)) {
-    try {
-      existingData = JSON.parse(fs.readFileSync(todayPath));
-    } catch (err) {
-      console.log("⚠ Error reading existing file. Creating fresh.");
-      existingData = [];
+    if (fs.existsSync(todayPath)) {
+      try {
+        existingData = JSON.parse(fs.readFileSync(todayPath));
+        
+        // 🚀 HOTFIX OLD DATA: Automatically upgrade old entries in today's file to use reg=48 & Default Image
+        existingData = existingData.map(item => {
+          const m = item.articleUrl?.match(/PRID=(\d+)/);
+          if (m) {
+            item.articleUrl = `https://pib.gov.in/PressReleasePage.aspx?PRID=${m[1]}&reg=48&lang=1`;
+          }
+          if (!item.imageUrl) item.imageUrl = DEFAULT_PIB_IMAGE;
+          if (!item.imageUrls || item.imageUrls.length === 0) item.imageUrls = [DEFAULT_PIB_IMAGE];
+          return item;
+        });
+
+      } catch (err) {
+        console.log("⚠ Error reading existing file. Creating fresh.");
+        existingData = [];
+      }
     }
-  }
 
-  // Merge old + new
-  const combinedData = [...existingData, ...finalOutput];
+    // Merge old + new
+    const combinedData = [...existingData, ...finalOutput];
 
-  // Remove duplicates safely using articleUrl
-  const uniqueMap = new Map();
-  for (const item of combinedData) {
-    uniqueMap.set(item.articleUrl, item);
-  }
-
-  const finalMerged = Array.from(uniqueMap.values());
-
-  const newContent = JSON.stringify(finalMerged, null, 2);
-
-  let shouldWriteToday = true;
-
-  if (fs.existsSync(todayPath)) {
-    const currentContent = fs.readFileSync(todayPath, "utf8");
-    if (currentContent === newContent) {
-      shouldWriteToday = false;
-      console.log("⏭ No change in today's JSON.");
+    // Remove duplicates safely using articleUrl
+    const uniqueMap = new Map();
+    for (const item of combinedData) {
+      uniqueMap.set(item.articleUrl, item);
     }
-  }
 
-  if (shouldWriteToday) {
-    fs.writeFileSync(todayPath, newContent);
-    console.log("✅ Today's JSON updated.");
-    dataChanged = true;
-  }
+    const finalMerged = Array.from(uniqueMap.values());
+    const newContent = JSON.stringify(finalMerged, null, 2);
+
+    let shouldWriteToday = true;
+
+    if (fs.existsSync(todayPath)) {
+      const currentContent = fs.readFileSync(todayPath, "utf8");
+      if (currentContent === newContent) {
+        shouldWriteToday = false;
+        console.log("⏭ No change in today's JSON.");
+      }
+    }
+
+    if (shouldWriteToday) {
+      fs.writeFileSync(todayPath, newContent);
+      console.log("✅ Today's JSON updated with Master URLs and Default Images.");
+    }
+
     // ===============================
     // 6️⃣ UPDATE dates.json
     // ===============================
     const datesPath = path.join(dataDir, "dates.json");
-
     let existingDates = [];
 
     if (fs.existsSync(datesPath)) {
         existingDates = JSON.parse(fs.readFileSync(datesPath));
-      }
+    }
 
     if (!existingDates.includes(today)) {
       existingDates.unshift(today);
-      }
+    }
 
     const newDatesContent = JSON.stringify(existingDates, null, 2);
-
     let shouldWriteDates = true;
 
     if (fs.existsSync(datesPath)) {
       const currentDatesContent = fs.readFileSync(datesPath, "utf8");
-    if (currentDatesContent === newDatesContent) {
+      if (currentDatesContent === newDatesContent) {
         shouldWriteDates = false;
         console.log("⏭ No change in dates.json.");
       }
@@ -212,13 +227,9 @@ async function runPipeline() {
     if (shouldWriteDates) {
         fs.writeFileSync(datesPath, newDatesContent);
         console.log("✅ dates.json updated.");
-        dataChanged = true;
     }
 
-    // ===============================
-    // 7️⃣ UPLOAD TO R2
-    // ===============================
-  console.log("🎉 Fetching Pipeline completed successfully.");
+    console.log("🎉 Fetching Pipeline completed successfully.");
 
   } catch (error) {
     console.error("❌ Pipeline failed:");
