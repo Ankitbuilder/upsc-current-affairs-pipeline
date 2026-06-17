@@ -46,7 +46,6 @@ async function fetchHtml(targetUrl) {
 
   for (const strat of strategies) {
     try {
-      // 🚀 Increased to 12 seconds so slow PIB pages don't get skipped!
       const res = await fetch(strat.url, { headers, signal: AbortSignal.timeout(12000) });
       const text = await res.text();
       if (isValidHtml(text)) {
@@ -54,11 +53,10 @@ async function fetchHtml(targetUrl) {
         return text;
       }
     } catch (e) {
-      // Silently continue to next strategy on timeout/failure
+      // Silently continue
     }
   }
 
-  // Final Backup: AllOrigins JSON Wrapper (Highly reliable on GitHub Actions)
   try {
     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`, { signal: AbortSignal.timeout(15000) });
     const json = await res.json();
@@ -80,7 +78,7 @@ export async function scrapeFullArticle(url) {
     if (!prIDMatch) return null;
     const prid = prIDMatch[1];
 
-    // 🚀 Using your discovery: Bare domain + Universal reg=48 Master Key
+    // The Universal reg=48 Master Key
     const masterUrl = `https://pib.gov.in/PressReleasePage.aspx?PRID=${prid}&reg=48&lang=1`;
     console.log(`🔗 Fetching PRID: ${prid} (Using reg=48 master key)...`);
     
@@ -119,29 +117,36 @@ export async function scrapeFullArticle(url) {
     }
 
     const finalTarget = target || $("body");
-    let contentBlocks = [];
-    let images = [];
 
-    // 3️⃣ TEXT HARVESTING
-    finalTarget.find("p, li, div, td, span").each((_, el) => {
-      const $el = $(el);
-      if ($el.children("p, li, div, td, span").length === 0) {
-        const text = cleanText($el.text());
-        if (text.length > 15 && !text.startsWith("Posted On:") && !text.toLowerCase().includes("follow us")) {
-          contentBlocks.push(text);
-        }
-      }
-    });
+    // 3️⃣ BULLETPROOF TEXT HARVESTING (Ignores bad HTML formatting)
+    // Convert <br> tags and block elements into standard newlines so words don't mash together
+    finalTarget.find("br").replaceWith("\n");
+    finalTarget.find("p, li, div, td, h1, h2, h3").append("\n");
+
+    // Grab all raw text inside the container
+    const rawText = finalTarget.text();
+
+    // Split by newlines, clean the spaces, and filter out junk lines
+    const contentBlocks = rawText.split("\n")
+      .map(line => cleanText(line))
+      .filter(line => 
+        line.length > 15 && 
+        !line.startsWith("Posted On:") && 
+        !line.toLowerCase().includes("follow us") &&
+        !line.includes("Visitor Counter :")
+      );
 
     // 4️⃣ IMAGE HARVESTING
+    let images = [];
     finalTarget.find("img").each((_, el) => {
       const validUrl = normalizeImageUrl($(el).attr("src") || $(el).attr("data-src"));
       if (validUrl) images.push(validUrl);
     });
 
     const uniqueContent = [...new Set(contentBlocks)].join("\n\n");
+    
     if (uniqueContent.length < 150) {
-      console.log(`❌ Skipped: Extracted text too short (likely parsed error page).`);
+      console.log(`❌ Skipped: Extracted text too short (Length: ${uniqueContent.length}).`);
       return null;
     }
 
