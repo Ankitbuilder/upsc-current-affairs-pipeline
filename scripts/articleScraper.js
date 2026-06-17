@@ -18,110 +18,67 @@ function cleanText(text) {
   return text.replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/* ============================================================
-   HYBRID FETCH ENGINE (With Free AllOrigins Proxy Fallback)
-============================================================ */
-async function fetchWithRetry(url, retries = 2) {
-  const prIDMatch = url.match(/PRID=(\d+)/);
-  const prid = prIDMatch ? prIDMatch[1] : "";
-  const referer = prid ? `https://pib.gov.in/PressReleasePage.aspx?PRID=${prid}` : "https://pib.gov.in/";
-
-  let attempt = 0;
-  let html = null;
-
-  // 1️⃣ Attempt Direct Fetch First (With short 10s timeout)
-  while (attempt < retries) {
-    try {
-      const response = await axios.get(url, {
-        headers: { 
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36", 
-          "Referer": referer,
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.5",
-          "Cache-Control": "no-cache"
-        },
-        timeout: 10000 
-      });
-
-      const tempHtml = response.data;
-      if (
-        tempHtml && 
-        tempHtml.length > 500 && 
-        !tempHtml.includes("Page you have requested is not available") && 
-        !tempHtml.includes("Sorry for your Inconvenience")
-      ) {
-        html = tempHtml;
-        break; // Direct fetch succeeded!
-      }
-    } catch (err) {
-      // Fail silently and move on to retry or proxy fallback
-    }
-    attempt++;
-  }
-
-  // 2️⃣ Multi-Proxy Fallback Engine if direct fetch is blocked
-  if (!html) {
-    console.log(`   Direct fetch blocked. Attempting proxy fallback...`);
-
-    // Proxy 1: CodeTabs (Fast, returns raw HTML directly. Strict 12s timeout)
-    try {
-      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-      const response = await axios.get(proxyUrl, { timeout: 12000 });
-      const tempHtml = response.data;
-      
-      if (
-        tempHtml && 
-        tempHtml.length > 500 && 
-        !tempHtml.includes("Page you have requested is not available") && 
-        !tempHtml.includes("Sorry for your Inconvenience")
-      ) {
-        html = tempHtml;
-        console.log(`   ✅ Proxy bypass successful (via CodeTabs)!`);
-      }
-    } catch (err) {
-      // Fail silently and try next proxy
-    }
-
-    // Proxy 2: AllOrigins (Backup, returns JSON wrapper. 15s timeout)
-    if (!html) {
-      try {
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-        const response = await axios.get(proxyUrl, { timeout: 15000 });
-        
-        let proxyData = response.data;
-        if (typeof proxyData === "string") {
-          proxyData = JSON.parse(proxyData);
-        }
-
-        const tempHtml = proxyData?.contents;
-        if (
-          tempHtml && 
-          tempHtml.length > 500 && 
-          !tempHtml.includes("Page you have requested is not available") && 
-          !tempHtml.includes("Sorry for your Inconvenience")
-        ) {
-          html = tempHtml;
-          console.log(`   ✅ Proxy bypass successful (via AllOrigins)!`);
-        }
-      } catch (err) {
-        // All options failed
-      }
-    }
-  }
-
-  if (html) {
-    return { data: html };
-  }
-
-  throw new Error("All direct and proxy bypass attempts were blocked by PIB.");
+function getRandomUserAgent() {
+  const uas = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0"
+  ];
+  return uas[Math.floor(Math.random() * uas.length)];
 }
 
 /* ============================================================
-   PIB SCRAPER (TWO-STEP SELF-HEALING ENGINE)
+   ULTIMATE PROXY FETCH ENGINE (GitHub Actions Cloud Bypass)
+============================================================ */
+async function fetchWithProxies(targetUrl) {
+  const userAgent = getRandomUserAgent();
+
+  // List of the strongest free proxies that bypass WAFs
+  const proxyList = [
+    { name: "CorsProxy.io", url: `https://corsproxy.io/?${encodeURIComponent(targetUrl)}` },
+    { name: "AllOrigins (Raw)", url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}` },
+    { name: "CodeTabs", url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}` }
+  ];
+
+  for (const proxy of proxyList) {
+    try {
+      console.log(`   🌐 Fetching via ${proxy.name}...`);
+      const response = await axios.get(proxy.url, {
+        headers: { 
+          "User-Agent": userAgent,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+        },
+        timeout: 15000 // 15 seconds strict timeout
+      });
+
+      const html = response.data;
+
+      // Ensure we got valid HTML and NOT a PIB soft-error
+      if (
+        html && 
+        html.length > 500 && 
+        !html.includes("Page you have requested is not available") && 
+        !html.includes("Sorry for your Inconvenience")
+      ) {
+        console.log(`   ✅ Success via ${proxy.name}!`);
+        return html;
+      } else {
+        console.log(`   ⚠️ ${proxy.name} returned soft-error. Trying next...`);
+      }
+    } catch (err) {
+      console.log(`   ⚠️ ${proxy.name} failed: ${err.message}`);
+    }
+  }
+
+  return null; // All proxies failed
+}
+
+/* ============================================================
+   PIB SCRAPER (TWO-STEP SELF-HEALING)
 ============================================================ */
 export async function scrapeFullArticle(url) {
   try {
-    // Extract PRID to make sure we have a valid article identifier
     const prIDMatch = url.match(/PRID=(\d+)/);
     if (!prIDMatch) {
       console.log(`⚠️ Skipped: No PRID found in URL [${url}]`);
@@ -129,17 +86,20 @@ export async function scrapeFullArticle(url) {
     }
     const prid = prIDMatch[1];
 
-    // 1️⃣ Convert the RSS link to the user-facing Page URL (which never fails due to regional mismatches)
-    const mainPageUrl = `https://archive.pib.gov.in/PressReleasePage.aspx?PRID=${prid}`;
+    // 1️⃣ Fetch the Main Page to extract the correct dynamic region/lang iframe
+    const mainPageUrl = `https://pib.gov.in/PressReleasePage.aspx?PRID=${prid}`;
+    console.log(`🔗 Resolving parameters for PRID: ${prid}`);
     
-    console.log(`🔗 Loading main page to extract correct parameters... [PRID: ${prid}]`);
-    const mainPageResponse = await fetchWithRetry(mainPageUrl);
-    const mainPageHtml = mainPageResponse.data;
-    if (!mainPageHtml) return null;
+    let mainPageHtml = await fetchWithProxies(mainPageUrl);
+    
+    if (!mainPageHtml) {
+      console.log(`❌ Skipped: Could not load main page for PRID ${prid}`);
+      return null;
+    }
 
     const $main = cheerio.load(mainPageHtml);
 
-    // 2️⃣ Find the dynamically generated iframe tag inside the main page and extract the correct URL
+    // 2️⃣ Extract the correct embedded iframe URL
     let iframeSrc = null;
     $main("iframe").each((_, el) => {
       const src = $main(el).attr("src");
@@ -149,17 +109,15 @@ export async function scrapeFullArticle(url) {
     });
 
     if (!iframeSrc) {
-      console.log(`⚠️ Skipped: Could not find embedded article iframe inside [${mainPageUrl}]`);
+      console.log(`⚠️ Skipped: Could not find iframe inside main page for PRID ${prid}`);
       return null;
     }
 
-    // Resolve the extracted correct iframe URL (it will automatically contain the correct reg and lang)
-    const correctIframeUrl = new URL(iframeSrc, "https://archive.pib.gov.in").toString();
-    console.log(`🎯 Successfully resolved working target: [${correctIframeUrl}]`);
+    const correctIframeUrl = new URL(iframeSrc, "https://pib.gov.in").toString();
+    console.log(`🎯 Found true article URL: ${correctIframeUrl}`);
 
-    // 3️⃣ Fetch the correct iframe URL to get the clean release content
-    const response = await fetchWithRetry(correctIframeUrl);
-    const html = response.data;
+    // 3️⃣ Fetch the actual iframe article content
+    const html = await fetchWithProxies(correctIframeUrl);
     if (!html || html.length < 500) return null;
 
     const $ = cheerio.load(html);
@@ -171,7 +129,7 @@ export async function scrapeFullArticle(url) {
     );
 
     if (!headline || headline.toLowerCase() === "untitled page" || headline.toLowerCase() === "pib") {
-      console.log(`⚠️ Skipped: Invalid or empty headline [${correctIframeUrl}]`);
+      console.log(`⚠️ Skipped: Invalid headline`);
       return null;
     }
 
@@ -203,7 +161,6 @@ export async function scrapeFullArticle(url) {
         if (linksCount > pAndLiCount) return; 
 
         const currentScore = (pAndLiCount * 10) + (totalTextLen / 100);
-        
         if (currentScore > maxScore) {
           maxScore = currentScore;
           target = $el;
@@ -254,7 +211,7 @@ export async function scrapeFullArticle(url) {
       finalContent.includes("Page you have requested is not available") || 
       finalContent.includes("Sorry for your Inconvenience")
     ) {
-      console.log(`❌ Skipped: Threshold not met or error text found [${correctIframeUrl}]`);
+      console.log(`❌ Skipped: Extracted text too short or contains error messages.`);
       return null;
     }
 
@@ -264,7 +221,7 @@ export async function scrapeFullArticle(url) {
     if (finalContent.length > 500) confidence += 50;
     if (uniqueImages.length > 0) confidence += 25;
 
-    console.log(`✅ Success: ${headline.substring(0, 45)}... [Score: ${confidence}/100]`);
+    console.log(`✅ Scraped: ${headline.substring(0, 45)}...`);
 
     return {
       headline,
