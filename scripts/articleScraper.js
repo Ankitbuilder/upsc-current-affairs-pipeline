@@ -8,7 +8,7 @@ import * as cheerio from "cheerio";
 ============================================================ */
 function normalizeImageUrl(src) {
   if (!src) return null;
-  const fullUrl = src.startsWith("http") ? src : "https://www.pib.gov.in" + src;
+  const fullUrl = src.startsWith("http") ? src : "https://pib.gov.in" + src;
   const blacklist = ["logo", "azadika", "facebook", "twitter", "instagram", "youtube", "print", "share", "icon"];
   return blacklist.some(word => fullUrl.toLowerCase().includes(word)) ? null : fullUrl;
 }
@@ -19,43 +19,55 @@ function cleanText(text) {
 }
 
 /* ============================================================
-   UTILITY: NETWORK RESILIENCE (With ScraperAPI proxy routing)
+   AKAMAI BYPASS FETCH ENGINE (ZERO-KEY EDITION)
 ============================================================ */
-async function fetchWithRetry(url, retries = 3) {
-  let attempt = 0;
-  const scraperApiKey = process.env.SCRAPERAPI_KEY?.trim();
-  
-  // If ScraperAPI key is configured, route the request through it to bypass Akamai Bot Manager
-  let fetchUrl = url;
-  if (scraperApiKey) {
-    fetchUrl = `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
-  }
+async function fetchWithRetry(url, retries = 2) {
+  const prIDMatch = url.match(/PRID=(\d+)/);
+  const prid = prIDMatch ? prIDMatch[1] : "";
 
-  let referer = "https://www.pib.gov.in/";
-  if (url.includes("PressReleaseIframePage.aspx")) {
-    const prIDMatch = url.match(/PRID=(\d+)/);
-    if (prIDMatch) {
-      referer = `https://www.pib.gov.in/PressReleasePage.aspx?PRID=${prIDMatch[1]}`;
-    }
-  }
+  // We sequentially try alternative protocols and subdomains that often bypass Akamai's WAF
+  const urlVariants = [
+    url.replace("www.pib.gov.in", "pib.gov.in"), // 1. Bare domain HTTPS (Often skips Akamai rules)
+    url.replace("https://www.pib.gov.in", "http://pib.gov.in"), // 2. Bare domain HTTP (Skips SSL-based bot inspection)
+    url.replace("https://www.pib.gov.in", "http://www.pib.gov.in"), // 3. www HTTP
+    url // 4. Original HTTPS www (as last resort)
+  ];
 
-  while (attempt < retries) {
-    try {
-      return await axios.get(fetchUrl, {
-        headers: { 
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", 
-          "Referer": referer,
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.5"
-        },
-        timeout: 25000 
-      });
-    } catch (err) {
+  for (const variantUrl of urlVariants) {
+    let attempt = 0;
+    while (attempt < retries) {
+      try {
+        const referer = prid ? `https://pib.gov.in/PressReleasePage.aspx?PRID=${prid}` : "https://pib.gov.in/";
+        
+        const response = await axios.get(variantUrl, {
+          headers: { 
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36", 
+            "Referer": referer,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Cache-Control": "no-cache"
+          },
+          timeout: 15000 
+        });
+
+        const html = response.data;
+        // Verify we got actual content and NOT the soft-error block page
+        if (
+          html && 
+          html.length > 500 && 
+          !html.includes("Page you have requested is not available") && 
+          !html.includes("Sorry for your Inconvenience")
+        ) {
+          return response; // Success! Return the unblocked response
+        }
+      } catch (err) {
+        // Silently fail and try the next variant/retry
+      }
       attempt++;
-      if (attempt >= retries) throw err;
-      await new Promise(res => setTimeout(res, 1000 * Math.pow(2, attempt)));
     }
   }
+  
+  throw new Error("All protocol/domain bypass attempts were blocked by PIB.");
 }
 
 /* ============================================================
@@ -67,12 +79,6 @@ export async function scrapeFullArticle(url) {
     const html = response.data;
     if (!html || html.length < 500) return null;
 
-    // Detect if PIB returned their standard "Page not available" soft-error HTML
-    if (html.includes("Page you have requested is not available") || html.includes("Sorry for your Inconvenience")) {
-      console.log(`⚠️ Skipped: PIB soft-error page returned [${url}]`);
-      return null;
-    }
-
     const $ = cheerio.load(html);
 
     // 1️⃣ HEADLINE
@@ -81,13 +87,13 @@ export async function scrapeFullArticle(url) {
       $("meta[property='og:title']").attr("content") || $("title").text().split("|")[0]
     );
 
-    // If the headline is generic, reject it
+    // If the headline is generic or empty, reject
     if (!headline || headline.toLowerCase() === "untitled page" || headline.toLowerCase() === "pib") {
       console.log(`⚠️ Skipped: Invalid or empty headline [${url}]`);
       return null;
     }
 
-    // 2️⃣ ADVANCED TARGET DETECTION (Side-bar proof)
+    // 2️⃣ ADVANCED TARGET DETECTION
     let target = null;
     const primarySelectors = [
       ".ReleaseText", 
@@ -163,7 +169,6 @@ export async function scrapeFullArticle(url) {
       }
     }
 
-    // Double check that the final content does not contain the error message
     if (
       finalContent.length < 150 || 
       finalContent.includes("Page you have requested is not available") || 
