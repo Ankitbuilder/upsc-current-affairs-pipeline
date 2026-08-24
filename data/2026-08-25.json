@@ -1,0 +1,13 @@
+[
+  {
+    "headline": "This website has been temporarily rate limited",
+    "fullText": "<p>Please enable cookies.</p><p>Ray ID: a3048dc82b98d56a •</p><p>2026-08-24 18:52:23 UTC</p><p>This website has been temporarily rate limited</p><p>Too many requests for api.codetabs.com. Try again later.</p><p>https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1200/</p><p>for more details.</p><p>Was this page helpful?</p><p>Thank you for your feedback!</p><p>Cloudflare Ray ID: a3048dc82b98d56a</p><p>Performance & security by Cloudflare</p><p>(function(){function d(){var b=a.getElementById(\"cf-footer-item-ip\"),c=a.getElementById(\"cf-footer-ip-reveal\");b&&\"classList\"in b&&(b.classList.remove(\"hidden\"),c.addEventListener(\"click\",function(){c.classList.add(\"hidden\");a.getElementById(\"cf-footer-ip\").classList.remove(\"hidden\")}))}var a=document;document.addEventListener&&a.addEventListener(\"DOMContentLoaded\",d)})();</p>",
+    "summaryText": "### OVERVIEW\nThe website api.codetabs.com has been temporarily rate limited, displaying a Cloudflare error page instructing visitors to try again later due to excessive requests.\n\n### KEY HIGHLIGHTS\n- Rate limiting active on api.codetabs.com as of 2026-08-24 18:52:23 UTC\n- Error attributed to too many requests for the api.codetabs.com API\n- Visitors directed to retry access at a later time\n- Ray ID: a3048dc82b98d56a displayed on the error page\n- Reference link provided to Cloudflare developers documentation for error 1200\n- Page includes feedback prompt: \"Was this page helpful? Thank you for your feedback!\"\n- Error page powered by Cloudflare performance and security infrastructure",
+    "category": "2026-08-24 18:52:23 UTC",
+    "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg",
+    "imageUrls": [
+      "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg"
+    ],
+    "articleUrl": "https://pib.gov.in/PressReleasePage.aspx?PRID=2302819&reg=48&lang=1"
+  }
+]
