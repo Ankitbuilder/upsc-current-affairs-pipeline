@@ -1,0 +1,24 @@
+[
+  {
+    "headline": "This website has been temporarily rate limited",
+    "fullText": "<p>Please enable cookies.</p><p>Ray ID: a4707b7d3c98ea3a •</p><p>2026-10-07 22:53:31 UTC</p><p>This website has been temporarily rate limited</p><p>Too many requests for api.codetabs.com. Try again later.</p><p>https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1200/</p><p>for more details.</p><p>Was this page helpful?</p><p>Thank you for your feedback!</p><p>Cloudflare Ray ID: a4707b7d3c98ea3a</p><p>Performance & security by Cloudflare</p><p>(function(){function d(){var b=a.getElementById(\"cf-footer-item-ip\"),c=a.getElementById(\"cf-footer-ip-reveal\");b&&\"classList\"in b&&(b.classList.remove(\"hidden\"),c.addEventListener(\"click\",function(){c.classList.add(\"hidden\");a.getElementById(\"cf-footer-ip\").classList.remove(\"hidden\")}))}var a=document;document.addEventListener&&a.addEventListener(\"DOMContentLoaded\",d)})();</p>",
+    "summaryText": "### OVERVIEW\nThe provided text is a Cloudflare error page indicating that the site api.codetabs.com is temporarily rate limited due to excessive requests.\n\n### KEY HIGHLIGHTS\n- The page displays a Cloudflare Ray ID: **a4707b7d3c98ea3a**.  \n- The timestamp of the error is **2026-10-07 22:53:31 UTC**.  \n- The message states the site is “temporarily rate limited” because of “Too many requests for api.codetabs.com.”  \n- Users are advised to “Try again later.”  \n- A “Thank you for your feedback!” prompt is present, but no substantive announcement or content is provided.",
+    "category": "2026-10-07 22:53:31 UTC",
+    "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg",
+    "imageUrls": [
+      "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg"
+    ],
+    "articleUrl": "https://pib.gov.in/PressReleasePage.aspx?PRID=2320446&reg=48&lang=1"
+  },
+  {
+    "headline": "This website has been temporarily rate limited",
+    "fullText": "<p>Please enable cookies.</p><p>Ray ID: a47088bbcbaeea3a •</p><p>2026-10-07 23:02:33 UTC</p><p>This website has been temporarily rate limited</p><p>Too many requests for api.codetabs.com. Try again later.</p><p>https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1200/</p><p>for more details.</p><p>Was this page helpful?</p><p>Thank you for your feedback!</p><p>Cloudflare Ray ID: a47088bbcbaeea3a</p><p>Performance & security by Cloudflare</p><p>(function(){function d(){var b=a.getElementById(\"cf-footer-item-ip\"),c=a.getElementById(\"cf-footer-ip-reveal\");b&&\"classList\"in b&&(b.classList.remove(\"hidden\"),c.addEventListener(\"click\",function(){c.classList.add(\"hidden\");a.getElementById(\"cf-footer-ip\").classList.remove(\"hidden\")}))}var a=document;document.addEventListener&&a.addEventListener(\"DOMContentLoaded\",d)})();</p>",
+    "summaryText": "### OVERVIEW\nThe provided text reports a temporary rate limiting error for api.codetabs.com, identified by Ray ID a47088bbcbaeea3a at 2026-10-07 23:02:33 UTC.\n\n### KEY HIGHLIGHTS\n- Ray ID: a47088bbcbaeea3a  \n- Timestamp: 2026-10-07 23:02:33 UTC  \n- Affected website: api.codetabs.com  \n- Issue: Too many requests causing temporary rate limiting  \n- Recommended action: Try the request again later  \n- Platform: Cloudflare (performance & security)",
+    "category": "2026-10-07 23:02:33 UTC",
+    "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg",
+    "imageUrls": [
+      "https://upload.wikimedia.org/wikipedia/commons/b/bd/Press_Information_Bureau%2C_Government_of_India.jpg"
+    ],
+    "articleUrl": "https://pib.gov.in/PressReleasePage.aspx?PRID=2320366&reg=48&lang=1"
+  }
+]
